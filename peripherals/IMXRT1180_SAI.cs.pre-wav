@@ -1,0 +1,343 @@
+//
+// NXP i.MX RT1180 SAI -- I2S transmit path (the part the SDK corpus exercises).
+//
+// PORTED from the QEMU oracle's hw/misc/imxrt1180_sai.c. Register map, TCSR bit
+// meanings, the fs derivation and the per-instance PARAM values all come from
+// there. Nothing is re-derived and nothing is guessed.
+//
+// ⭐ THE SAMPLE RATE IS COMPUTED FROM THE GUEST'S OWN REGISTERS. IT IS NOT 48000.
+//     BCLK = MCLK / (2 * (TCR2[DIV] + 1))
+//     bits per frame = (TCR4[FRSZ] + 1) words * (TCR5[W0W] + 1) bits
+//     fs = BCLK / bits-per-frame
+// MCLK is CLOCK_ROOT[65] (SAI1), which this platform's CCM now computes for real
+// from the ANADIG AUDIO PLL the guest programmed. Cross-checked end to end: the
+// SDK board init sets loopDivider=32, num=768, den=1000, post=1 and root div 16,
+// which predicts 24.576 MHz, and the model MEASURES 24576000 Hz.
+//
+// If the guest has not programmed a usable clock this returns 0, AND 0 MEANS 0 --
+// there is no fallback. "A ?: IS NOT A SAFETY NET -- IT IS A PLACE FOR A BUG TO
+// LIVE WHERE NO TEST WILL LOOK." (Six timer blocks in the oracle's tree opened
+// with `if(!clk) clk = DEFAULT;` and not one of the six defaults was right.)
+//
+// ⭐ PARAM IS PER INSTANCE, AND THE FIFO DEPTH COMES OUT OF IT.
+// The oracle's model once advertised ONE hand-written 0x00050302 for all four
+// instances: PARAM[11:8] is log2(FIFO depth), so that constant said EIGHT, its
+// comment said 32, and the silicon says SIXTEEN for SAI1. Three numbers, no two
+// equal. The RM's per-instance reset values are used here instead:
+//     SAI1 0x00050402   SAI2 0x00050501   SAI3 0x00050501   SAI4 0x00050504
+//
+// ⭐ FRF AND FWF ARE NOT WHAT THEY LOOK LIKE -- carrying the oracle's CORRECTION,
+// not their original reading. From fsl_sai.h's own enum comments (FRIE "means
+// reached watermark", FWIE "means the FIFO is empty"), cross-checked against the
+// sai_edma driver whose per-request burst is exactly depth-watermark:
+//     FRF (Request) = the FIFO has drained TO/BELOW the watermark -> refill trigger.
+//                     This is what FRDE (the DMA) keys on.
+//     FWF (Warning) = the FIFO is EMPTY; underrun imminent.
+// A DMA line keyed on the naive reading ("has room at all") fires one slot short
+// of full and then writes depth-watermark words -- an overrun.
+//
+// NOT MODELLED, flagged not faked: there is no audio sink. The drained words are
+// discarded, so this makes no claim about analog output; it models the FIFO
+// occupancy and the request handshake the driver actually observes. The RX path
+// is register-backed only.
+//
+using System;
+using System.Collections.Generic;
+using Antmicro.Renode.Core;
+using Antmicro.Renode.Logging;
+using Antmicro.Renode.Peripherals.Bus;
+using Antmicro.Renode.Peripherals.DMA;
+using Antmicro.Renode.Peripherals.Miscellaneous;
+using Antmicro.Renode.Time;
+
+namespace Antmicro.Renode.Peripherals.Sound
+{
+    public class IMXRT1180_SAI : IDoubleWordPeripheral, IKnownSize
+    {
+        public IMXRT1180_SAI(IMachine machine, IMXRT1180_CCM ccm = null, IMXRT1180_eDMA dma = null,
+                             int clockRoot = 65, int dmaRequestSource = 21, uint param = 0x00050402)
+        {
+            this.machine = machine;
+            this.ccm = ccm;
+            this.dma = dma;
+            this.clockRoot = clockRoot;
+            this.dmaRequestSource = dmaRequestSource;
+            this.param = param;
+            fifoDepth = 1 << (int)((param >> 8) & 0xF);   // PARAM[11:8] = log2(depth)
+            regs = new uint[Size / 4];
+            txFifo = new Queue<uint>();
+            IRQ = new GPIO();
+
+            machine.ClockSource.AddClockEntry(new ClockEntry(DrainTickMicroseconds, MicrosecondsPerSecond,
+                DrainTick, this, "sai-drain", false));
+            Reset();
+        }
+
+        public long Size => 0x1000;
+
+        public void Reset()
+        {
+            Array.Clear(regs, 0, regs.Length);
+            txFifo.Clear();
+            drainAccumulator = 0;
+            SetDrainEnabled(false);
+        }
+
+        public uint ReadDoubleWord(long offset)
+        {
+            switch((Registers)offset)
+            {
+                case Registers.Verid:
+                    return VeridValue;
+                case Registers.Param:
+                    return param;
+                case Registers.Tcsr:
+                    return ComposeTcsr();
+                case Registers.Tfr0:
+                case Registers.Tfr1:
+                    // Read/write FIFO pointers. Only the occupancy matters to the driver.
+                    return ((uint)txFifo.Count << WriteFifoPointerShift);
+                default:
+                    return offset + 4 <= Size ? regs[offset / 4] : 0u;
+            }
+        }
+
+        public void WriteDoubleWord(long offset, uint value)
+        {
+            if(offset + 4 > Size)
+            {
+                this.Log(LogLevel.Warning, "Out-of-bounds write at 0x{0:X}", offset);
+                return;
+            }
+
+            switch((Registers)offset)
+            {
+                case Registers.Verid:
+                case Registers.Param:
+                    return;                                  // RO
+                case Registers.Tdr0:
+                case Registers.Tdr1:
+                    if(txFifo.Count < fifoDepth)
+                    {
+                        txFifo.Enqueue(value);
+                    }
+                    else
+                    {
+                        regs[(long)Registers.Tcsr / 4] |= CsrFef;   // overrun, sticky
+                        this.Log(LogLevel.Warning, "TX FIFO overrun: TDR written with {0} words queued "
+                            + "and a depth of {1}", txFifo.Count, fifoDepth);
+                    }
+                    UpdateFlags();
+                    return;
+                case Registers.Tcsr:
+                {
+                    var old = regs[offset / 4];
+                    // FEF/SEF/WSF are W1C; FRF/FWF are computed, never stored.
+                    var sticky = old & CsrStickyFlags & ~(value & CsrStickyFlags);
+                    regs[offset / 4] = (value & ~(CsrStickyFlags | CsrFrf | CsrFwf)) | sticky;
+                    if((value & CsrFr) != 0)                 // FIFO reset
+                    {
+                        txFifo.Clear();
+                        regs[offset / 4] &= ~CsrFr;
+                    }
+                    if((value & CsrSr) != 0)                 // software reset
+                    {
+                        txFifo.Clear();
+                    }
+                    SetDrainEnabled((regs[offset / 4] & CsrEn) != 0);
+                    UpdateFlags();
+                    return;
+                }
+                default:
+                    regs[offset / 4] = value;
+                    UpdateFlags();
+                    return;
+            }
+        }
+
+        // fs, in Hz, from the guest's own registers. 0 means the guest has not
+        // programmed a usable clock -- the block must not tick.
+        public uint SampleRateHz()
+        {
+            var tcr2 = regs[(long)Registers.Tcr2 / 4];
+            if(((tcr2 >> Tcr2BcdShift) & 1) == 0)
+            {
+                // Bit-clock SLAVE: an external master drives the clock. We do not
+                // model an external bit clock, so there is no rate to compute here.
+                return 0;
+            }
+            var words = ((regs[(long)Registers.Tcr4 / 4] >> Tcr4FrszShift) & 0x1F) + 1;
+            var bits  = ((regs[(long)Registers.Tcr5 / 4] >> Tcr5W0wShift) & 0x1F) + 1;
+            var mclk  = ccm != null ? ccm.GetClockRootHz(clockRoot) : 0u;
+            if(mclk == 0 || words == 0 || bits == 0)
+            {
+                return 0;
+            }
+            var bclk = mclk / (2u * ((tcr2 & Tcr2DivMask) + 1u));
+            return bclk / (words * bits);
+        }
+
+        private uint ComposeTcsr()
+        {
+            var tcsr = regs[(long)Registers.Tcsr / 4] & ~(CsrFrf | CsrFwf);
+            if((tcsr & CsrEn) != 0)
+            {
+                var watermark = regs[(long)Registers.Tcr1 / 4] & Tcr1TfwMask;
+                if(txFifo.Count <= watermark)
+                {
+                    tcsr |= CsrFrf;          // drained to/below watermark -> refill
+                }
+                if(txFifo.Count == 0)
+                {
+                    tcsr |= CsrFwf;          // empty -> underrun imminent
+                }
+            }
+            return tcsr;
+        }
+
+        private void UpdateFlags()
+        {
+            if(servicingRequest)
+            {
+                return;                      // the loop below re-checks on the way out
+            }
+            UpdateInterrupt();
+            var tcsr = ComposeTcsr();
+            if((tcsr & CsrEn) == 0 || dma == null)
+            {
+                return;
+            }
+            var watermark = regs[(long)Registers.Tcr1 / 4] & Tcr1TfwMask;
+
+            servicingRequest = true;
+            try
+            {
+                // The eDMA services ONE minor loop per assertion, and those TDR writes
+                // push the FIFO past the threshold so the line falls of its own accord
+                // -- the same "a minor loop lowers its own request" handshake the eDMA
+                // relies on. Bounded so a misprogrammed channel cannot spin forever.
+                for(var guard = 0; guard < MaximumRequestsPerUpdate; guard++)
+                {
+                    var request = (((regs[(long)Registers.Tcsr / 4] & CsrFrde) != 0) && txFifo.Count <= watermark)
+                               || (((regs[(long)Registers.Tcsr / 4] & CsrFwde) != 0) && txFifo.Count == 0);
+                    if(!request)
+                    {
+                        return;
+                    }
+                    var before = txFifo.Count;
+                    if(!dma.TryGetChannelBySlot(dmaRequestSource, out var channel))
+                    {
+                        return;              // nothing muxed to this request source yet
+                    }
+                    dma.OnGPIO(channel, true);
+                    if(txFifo.Count == before)
+                    {
+                        return;              // the channel did not advance; do not spin
+                    }
+                }
+                this.Log(LogLevel.Warning, "TX DMA request still asserted after {0} serviced minor "
+                    + "loops; giving up this round to avoid spinning", MaximumRequestsPerUpdate);
+            }
+            finally
+            {
+                servicingRequest = false;
+            }
+        }
+
+        private void SetDrainEnabled(bool enabled)
+        {
+            machine.ClockSource.ExchangeClockEntryWith(DrainTick, entry => entry.With(enabled: enabled));
+        }
+
+        // The codec's fs-paced pull. Fires every DrainTickMicroseconds of VIRTUAL time
+        // and removes exactly the number of words the bit clock would have clocked out
+        // since the last tick, with the sub-word remainder carried in drainAccumulator.
+        // Pacing to fs -- not to "as fast as anything will take it" -- is what keeps the
+        // guest running at a real sample rate.
+        private void DrainTick()
+        {
+            var fs = SampleRateHz();
+            if(fs == 0)
+            {
+                return;                      // no clock: nothing is being clocked out
+            }
+            drainAccumulator += (ulong)fs * DrainTickMicroseconds;
+            var want = drainAccumulator / MicrosecondsPerSecond;
+            drainAccumulator -= want * MicrosecondsPerSecond;
+
+            for(var i = 0ul; i < want && txFifo.Count > 0; i++)
+            {
+                txFifo.Dequeue();            // no audio sink; see the header note
+            }
+            UpdateFlags();
+        }
+
+        public GPIO IRQ { get; private set; }
+
+        // TCSR pairs each flag at bit 16+n with its enable at bit 8+n
+        // (FRIE/FRF, FWIE/FWF, FEIE/FEF, SEIE/SEF, WSIE/WSF).
+        private void UpdateInterrupt()
+        {
+            var tcsr = ComposeTcsr();
+            var flags = (tcsr >> 16) & 0x1F;
+            var enables = (tcsr >> CsrInterruptEnableShift) & 0x1F;
+            IRQ.Set((flags & enables) != 0);
+        }
+
+        private readonly IMachine machine;
+        private readonly IMXRT1180_CCM ccm;
+        private readonly IMXRT1180_eDMA dma;
+        private readonly int clockRoot;
+        private readonly int dmaRequestSource;
+        private readonly uint param;
+        private readonly int fifoDepth;
+        private readonly uint[] regs;
+        private readonly Queue<uint> txFifo;
+        private ulong drainAccumulator;
+        private bool servicingRequest;
+
+        private const long DrainTickMicroseconds = 200;      // fs*200us ~= 9.6 words at 48 kHz
+        private const long MicrosecondsPerSecond = 1000000;
+        private const int MaximumRequestsPerUpdate = 64;
+        private const uint VeridValue = 0x03010000;          // the RM prints this for every instance
+
+        private const uint CsrFrde = 1u << 0;
+        private const uint CsrFwde = 1u << 1;
+        private const uint CsrFrf  = 1u << 16;
+        private const uint CsrFwf  = 1u << 17;
+        private const uint CsrFef  = 1u << 18;
+        private const uint CsrSef  = 1u << 19;
+        private const uint CsrWsf  = 1u << 20;
+        private const uint CsrSr   = 1u << 24;
+        private const uint CsrFr   = 1u << 25;
+        private const uint CsrEn   = 1u << 31;
+        private const uint CsrStickyFlags = CsrFef | CsrSef | CsrWsf;
+
+        private const uint Tcr1TfwMask  = 0x1F;
+        private const uint Tcr2DivMask  = 0xFF;
+        private const int  Tcr2BcdShift = 24;
+        private const int  Tcr4FrszShift = 16;
+        private const int  Tcr5W0wShift  = 16;
+        private const int  WriteFifoPointerShift = 16;
+        private const int  CsrInterruptEnableShift = 8;
+
+        private enum Registers : long
+        {
+            Verid = 0x00,
+            Param = 0x04,
+            Tcsr  = 0x08,
+            Tcr1  = 0x0C,
+            Tcr2  = 0x10,
+            Tcr3  = 0x14,
+            Tcr4  = 0x18,
+            Tcr5  = 0x1C,
+            Tdr0  = 0x20,
+            Tdr1  = 0x24,
+            Tfr0  = 0x40,
+            Tfr1  = 0x44,
+            Tmr   = 0x60,
+            Rcsr  = 0x88,
+            Mcr   = 0x100,
+        }
+    }
+}

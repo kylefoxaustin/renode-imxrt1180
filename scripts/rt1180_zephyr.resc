@@ -1,0 +1,43 @@
+:name: MIMXRT1189-EVK (CM33) — Zephyr
+:description: Stock NXP SDK driver_examples, cm33, --config debug
+
+using sysbus
+include @/home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+
+mach create "rt1180"
+machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_zephyr.repl
+
+
+# ⭐ BLANKET TrustZone-M SECURE MIRROR.
+# The whole NS peripheral window 0x4000_0000..0x4FFF_FFFF is mirrored at
+# 0x5000_0000 in ONE statement, instead of giving each peripheral its own
+# "+0x1000_0000" registration.
+#
+# WHY: per-peripheral aliasing is structurally prone to silently omitting the
+# secure alias of any block the test corpus never touches secure-side. That is
+# not hypothetical -- it happened here: S3MU was the ONE block without its alias,
+# because every NXP SDK example runs non-secure, and only Zephyr (which runs the
+# cm33 SECURE) exposed it by polling S3MU TSR at 0x5754_0124.
+# A blanket mirror is immune by construction.
+# Architecture noted by @rt1180emulator, whose QEMU SoC does the same thing with
+# one memory_region_init_alias(0x40000000, size 0x10000000) mapped at 0x50000000.
+sysbus Redirect 0x50000000 0x40000000 0x10000000
+
+showAnalyzer lpuart1
+cpu PerformanceInMips 240
+
+# Zephyr's XIP image begins with the boot header (FlexSPI NOR config block /
+# IVT), NOT the vector table -- CONFIG_IMAGE_VECTOR_TABLE_OFFSET is 0x1000 here.
+# Renode's LoadELF guesses VectorTableOffset from the lowest LOAD address, which
+# for this image is the RW data segment at 0x14000000 -> wrong, and the core
+# starts at PC=0/SP=0 and locks up. So the vector table, SP and PC are supplied
+# explicitly; the runner script reads them from the ELF with `nm`/`readelf`
+# rather than hardcoding.
+macro reset
+"""
+    sysbus LoadELF $elf
+    cpu VectorTableOffset $vt
+    cpu SP $sp
+    cpu PC $pc
+"""
+runMacro $reset

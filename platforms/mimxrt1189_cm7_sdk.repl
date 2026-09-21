@@ -1,0 +1,141 @@
+// MIMXRT1189 — CM7 platform for the STOCK NXP SDK images (not Zephyr).
+//
+// ⭐ WHY THIS FILE EXISTS, AND WHY IT IS NOT JUST MORE ENTRIES IN THE OTHER ONE.
+// `mimxrt1189_cm7.repl` is built from **Zephyr's** cm7 board description: ITCM@0,
+// DTCM@0x20000000, console on lpuart12. A full SDK image on the SAME CORE needs a
+// different set — and MEASURED, the difference is not cosmetic:
+//   * it runs BOARD_DeinitFlash, which polls FlexSPI1 STS0 forever if FlexSPI is
+//     not mapped (14551 reads in a 2 s window, no console at all);
+//   * its debug console is **LPUART1**, not lpuart12, so a Zephyr-derived platform
+//     is SILENT under it with no error at all;
+//   * it drives the motor-control blocks Zephyr never touches.
+//
+// Keeping these here rather than in the Zephyr platform means the 16 Zephyr cm7
+// delta rows run against a byte-identical platform to the one they were measured
+// on. That is not tidiness — an earlier lesson in this project was that a FlexSPI
+// XIP window registered in the wrong platform SHADOWED a Zephyr image's link
+// address and broke two rows, and it was caught by regression rather than by
+// reasoning. The cheapest way not to repeat it is not to put the window where the
+// Zephyr images live.
+//
+// Inherits everything from the Zephyr cm7 platform (cores, TCMs, OCRAM, lpuart12,
+// clock/power blocks) and adds only what the SDK images additionally need.
+
+using "mimxrt1189_cm7.repl"
+
+// ---- LPUART1 — the SDK cm7 images' console, which is NOT Zephyr's ----
+// MEASURED: with FlexSPI1 mapped, pmsm_enc_cm7.elf reaches LPUART1 (0x44380000:
+// writes to 0x08/0x10/0x18/0x24/0x28 = GLOBAL/BAUD/CTRL/FIFO/WATER, the
+// LPUART_Init sequence) and still printed nothing, because this platform carried
+// only LPUART12. Zephyr's cm7 devicetree sets `zephyr,console = &lpuart12`; the
+// SDK's evkmimxrt1180 board files use LPUART1 as the debug console on BOTH cores.
+// So the two toolchains disagree about which UART is the console on the same
+// core, and a platform built from one of them is silent under the other.
+// LPUART1_BASE 0x44380000, LPUART1_IRQn = 19 on the cm7 NVIC. [cmsis, cm7 header]
+// Both UARTs are present: this platform now serves Zephyr cm7 AND SDK cm7.
+lpuart1: UART.NXP_LPUART @ sysbus 0x44380000
+    fifoSize: 16
+    IRQ -> nvic@19
+
+// ---- FlexSPI1 — THE MEASURED FIRST WALL FOR THE SDK cm7 IMAGES ----
+// MEASURED on the stock cm7 platform running pmsm_enc_cm7.elf: 14551 reads of
+// 0x425E00E0 (FLEXSPI1 STS0) in a 2 s window and no console output at all.
+// BOARD_DeinitFlash polls STS0 for ARBIDLE then SEQIDLE; with nothing mapped the
+// read returns 0 and board init never advances. The Zephyr cm7 target never hit
+// this because it links to TCM and skips the SDK's flash deinit entirely -- which
+// is why a platform that is sufficient for Zephyr is NOT sufficient for a full
+// SDK image on the same core.
+// Same three objects as the CM33 side, same verified register map. FLEXSPI1_BASE
+// 0x425E0000, FlexSPI1_AMBA_BASE 0x28000000 (16 MiB). [cmsis]
+flexspi1: SPI.IMXRT1180_FlexSPI_Ctrl @ {
+        sysbus 0x425E0000;
+        sysbus new Bus.BusMultiRegistration { address: 0x28000000; size: 0x1000000; region: "ciphertext" }
+    }
+
+flexspi1_flash_memory: Memory.MappedMemory
+    size: 0x1000000
+
+flexspi1_nor: SPI.ISSI_IS25WP @ flexspi1
+    underlyingMemory: flexspi1_flash_memory
+
+// FLEXSPI2_BASE 0x445E0000 [cmsis] — BOARD_DeinitFlash deinits BOTH instances.
+flexspi2: Miscellaneous.IMXRT1180_FlexSPI @ sysbus 0x445E0000
+
+// ---- ADC1 / ADC2 (LPADC) — the motor-control front end ----
+// MEASURED: with FlexSPI1 and LPUART1 mapped, pmsm_enc_cm7.elf polls ADC1 STAT
+// (0x42600014) 9320 times in a 2 s window -- the next wall after board init.
+// ADC1_BASE 0x42600000 / ADC1_IRQn 93; ADC2_BASE 0x42E00000 / ADC2_IRQn 189.
+// [cmsis, MIMXRT1189_cm7.h]
+// Model PORTED from the oracle's hw/misc/imxrt1180_adc.c, not derived from the
+// RM -- see the header comment in the .cs for why two of its reset values are
+// load-bearing in ways the RM's reset column would not warn you about.
+// GPIO 0 is the NVIC line; 1 and 2 are the eDMA result-FIFO request lines, left
+// unconnected here because no eDMA row on this platform consumes them yet.
+adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
+    0 -> nvic@93
+
+adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
+    0 -> nvic@189
+
+// ---- Motor-control blocks: the FOC loop's actual hardware ----
+// All bases and IRQs from MIMXRT1189_cm7_COMMON.h; all four models ported from
+// the oracle's C device models (see each .cs header for what had to be right).
+//
+// PWM1 (eFlexPWM) — PWM1_BASE 0x42650000. Four submodules, four IRQs:
+//   PWM1_0..3 = 24..27, PWM1_FAULT = 23. [cmsis]
+// GPIO map: 0-3 per-submodule compare/reload IRQ, 4-7 output trigger (-> XBAR),
+// 8-11 per-submodule value-DMA request.
+pwm1: Miscellaneous.IMXRT1180_PWM @ sysbus 0x42650000
+    0 -> nvic@24
+    1 -> nvic@25
+    2 -> nvic@26
+    3 -> nvic@27
+
+// EQDC1 (Enhanced Quadrature Decoder, the rotor-position sensor).
+// EQDC1_BASE 0x42710000, EQDC1_IRQn 185. [cmsis]
+eqdc1: Miscellaneous.IMXRT1180_EQDC @ sysbus 0x42710000
+    0 -> nvic@185
+
+// XBAR1 (inter-peripheral crossbar). XBAR1_BASE 0x42750000. [cmsis]
+// Carries the eFlexPWM trigger edge to the LPADC hardware-trigger inputs so the
+// ADC samples synchronously with the PWM period. No IRQ wired: this model passes
+// levels through and does not implement XBAR-generated edge interrupts (flagged
+// at runtime by the model itself, not only here).
+xbar1: Miscellaneous.IMXRT1180_XBAR @ sysbus 0x42750000
+
+// ---- The virtual-motor plant ----
+// ⭐ NOT A DEVICE ON THE SoC. It is a simulation object that reads the eFlexPWM
+// duty, integrates a PMSM model, drives the EQDC position/speed counters and
+// injects phase currents into the LPADC channels. Registered with no bus address
+// because it HAS none — giving it a fake one would be the first lie in the file.
+//
+// Without it, PWM/EQDC/ADC each sit in their honest "no motor attached" state and
+// each says so at runtime. With it, an FOC loop on the guest closes.
+//
+// Ported from the oracle's hw/misc/imxrt1180_motor.c, whose parameters come from
+// the MCUXpresso mc_pmsm M1 appconfig (4 pole pairs, Rs 0.54R, Ld 335.6uH,
+// Lq 218uH, Kt 0.0548 N*m/A, J 1e-5 kg*m^2, 24 V bus, 2000-line encoder).
+// `@ none` is Renode's idiom for a peripheral with no bus address (its own
+// platforms use it -- platforms/cpus/stm32f0.repl, ambiq-apollo4.repl), and it is
+// correct here: the plant is not a device on the SoC and must not appear in the
+// address map.
+//
+// ⚠ IT DOES NOT MAKE THE OBJECT OBSERVABLE, and I first wrote this comment
+// claiming it did. MEASURED, on Renode 1.17.0: a `@ none` peripheral is neither
+// listed by `peripherals` nor addressable by name -- `motor RpmMechanical` answers
+// "No such command or device", and so does Renode's OWN `nvicInput7` on
+// platforms/cpus/stm32f0.repl. So there is no back channel to the plant's C#
+// state, and that turns out to be the better outcome:
+//
+// ⭐⭐ THE VALUE HARNESS READS THE MACHINE THROUGH ITS REAL REGISTERS INSTEAD.
+// Rotor angle comes from EQDC1 UPOSH:LPOSH + REVH and speed from POSDH/POSDPERH --
+// the very registers the FOC control loop reads. A proof built on those is
+// strictly stronger than one built on a simulation object's properties, because it
+// cannot pass while the firmware-visible path is broken. A back channel would have
+// let the plant be right and the peripheral interface wrong, and scored it green.
+motor: Miscellaneous.IMXRT1180_Motor @ none
+    PWM: pwm1
+    EQDC: eqdc1
+    AdcA: adc1
+    AdcC: adc2
+    CCM: ccm

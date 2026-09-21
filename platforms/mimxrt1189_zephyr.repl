@@ -1,0 +1,63 @@
+// MIMXRT1189 — Zephyr platform: the M0 CM33 platform + the EXTERNAL memories
+// Zephyr's default board target links against.
+//
+// ⚠ WHAT THIS ADDS AND WHY IT IS HONEST:
+// Zephyr's stock `mimxrt1180_evk/mimxrt1189/cm33` target uses
+//     zephyr,sram   = &hyperram0     -> external HyperRAM  @ 0x14000000 (8 MiB)
+//     zephyr,flash  = &w25q128jw     -> external NOR, XIP  @ 0x38000000 (16 MiB)
+// Neither device is modelled here. What IS modelled is the MEMORY behind them:
+// the image is placed by `sysbus LoadELF`, exactly as the boot ROM would have
+// left an XIP image in place, so no flash protocol is exercised. This models the
+// storage, NOT the FlexSPI/HyperBus devices -- a real scope limit, stated.
+using "mimxrt1189_cm33.repl"
+
+// FlexSPI1 NOR XIP window. 0x28000000, 16 MiB, secure alias 0x38000000. [brief]
+// Zephyr links to the SECURE alias (measured: ELF LOAD at 0x38000000,
+// entry 0x3800CBA5).
+// ⚠ ONLY the secure alias. 0x28000000 is the FlexSPI controller's
+// command-translated XIP window (see mimxrt1189_cm33.repl) and must stay that
+// way for the SDK examples; Zephyr's cm33 image ELF-LOADs at 0x38000000, which
+// needs to be plain writable memory. Mapping both here shadowed the controller
+// window; mapping the controller window over both broke Zephyr. They are split.
+flexspi1_xip: Memory.MappedMemory @ sysbus 0x38000000
+    size: 0x1000000
+
+// External HyperRAM. Zephyr's zephyr,sram. 8 MiB at the secure alias
+// 0x14000000 (= 0x04000000 + 0x1000_0000, the TZ-M secure offset [brief]);
+// measured from the ELF's RW LOAD segments at 0x14000000/0x1400_0038.
+hyperram0: Memory.MappedMemory @ {
+        sysbus 0x04000000;
+        sysbus 0x14000000
+    }
+    size: 0x800000
+
+// ---- Board-init blocks the SDK examples needed, which Zephyr's ztest suites
+// ---- also reach (hello_world did not, which is why they were missing here).
+// Same models/values as mimxrt1189_m1.repl and _m2.repl.
+trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
+    ncmMask: 0x04
+
+trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
+    ncmMask: 0x1C
+
+trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
+    ncmMask: 0x1B
+
+dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
+    readyOffset: 0x0
+    readyMask: 0x80000000
+
+blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000
+
+src: Miscellaneous.IMXRT1180_SRC @ sysbus 0x44460000
+
+blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
+    gates: src
+    isBlkCtrl: true
+
+// GPC_CPU_CTRL @ 0x44470000 (General Power Controller, per-CPU control) --
+// reached by Zephyr's ztest init; observed read/write at 0x4447080C.
+// Name checked against MIMXRT1189_cm33_COMMON.h (GPC_CPU_CTRL_BASE), NOT
+// guessed -- my first comment here said BLK_CTRL_NS_AONMIX and was wrong.
+// Register-backed window, no modelled behaviour.
+gpc_cpu_ctrl: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44470000

@@ -1,0 +1,60 @@
+:name: RT1180 peripheral models — single load list
+:description: Every C# peripheral this project ships, in dependency order.
+
+# ⭐ ONE LIST, INCLUDED BY EVERY .resc AND BY THE ROBOT SUITE.
+#
+# WHY THIS FILE EXISTS. Each .resc used to carry its own hand-maintained list
+# of 'i @peripherals/*.cs' lines. Adding a peripheral to a .repl then meant
+# remembering to add its include to FIVE scripts plus the Robot suite, and
+# forgetting one fails LOUDLY but only on the scripts you forgot -- the
+# platform simply will not load.
+#
+# THAT MISTAKE HAPPENED THREE TIMES IN ONE SESSION: LPI2C/FXLS8974 (Robot),
+# USB (Robot), and EMDIO -- where I updated rt1180_m1.resc only, and the six
+# Tier A rows, which load the SAME m1.repl through rt1180_tierA.resc, all went
+# from PASS/BANNER to FAIL. MEASURED: a full sweep read 22/29 instead of 27/29,
+# and every lost row was Tier A. The score was wrong for a harness reason, not
+# a model reason -- exactly the class this project keeps catching elsewhere.
+#
+# ORDER MATTERS: Renode compiles each file to its own assembly, so a model that
+# references another must be loaded after it (CCM after Anadig; SAI after CCM
+# and eDMA). This list preserves the order that was verified working.
+
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_eDMA4.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_SRC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_PeriphRdy.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_TRDC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_Anadig.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_S3MU.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_Xcache.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_FlexSPI.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_FlexSPI_Ctrl.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_CCM.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_LPI2C.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_USBPHY.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_USB.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/FXLS8974.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/WM8962.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_SAI.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_ASRC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_NETC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_MSGINTR.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_MECC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_LPADC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_XBAR.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_EQDC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_PWM.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_Motor.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_DMARequestRouter.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/TMP105.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_LPIT.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_QTMR.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_GPT.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_TPM.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_LPTMR.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/EchoWire.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_LPSPI.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_Misc.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_FlexCAN.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_USDHC.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/UdpWire.cs

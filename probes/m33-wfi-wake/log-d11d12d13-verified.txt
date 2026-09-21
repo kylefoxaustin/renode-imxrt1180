@@ -1,0 +1,24 @@
+[23:57:51.7545] [INFO] Loaded monitor commands from: /home/kyle/.cache/renode/renode_1.17.0-portable/scripts/monitor.py
+Renode, version 1.17.0 (1.17.0+20260907gitf1dd1b4af)
+
+(monitor) include @/tmp/rt1180renode-m33wfi.resc; cpu.semihosting.semihosting_ua rt CreateFileBackend @/home/kyle/Documents/GitHub/rt1180renode/probes/m33-wfi-wa ke/out-d11d12d13-verified.txt true; cpu1.semihosting1.semihosting1_uart CreateFi leBackend @/home/kyle/Documents/GitHub/rt1180renode/probes/m33-wfi-wake/out-d11d 12d13-verified.m7.txt true; sysbus LoadELF @/home/kyle/Documents/GitHub/rt1180re node/probes/m33-wfi-wake/m33.elf false cpu; sysbus LoadELF @/home/kyle/Documents /GitHub/rt1180renode/probes/m33-wfi-wake/m7.elf  false cpu1; emulation RunFor "1 5"; quit
+[23:57:51.7890] [INFO] Including script(s): /tmp/rt1180renode-m33wfi.resc
+[23:57:54.8045] [INFO] Including script(s): /home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+[23:57:54.8045] [INFO] Including script(s): /home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+[23:57:57.9013] [INFO] System bus created.
+[23:57:58.1695] [INFO] Configuring Security Attribution Unit regions to default: 8
+[23:57:58.1698] [INFO] Configuring Implementation-Defined Attribution Unit regions to default: 8
+[23:57:58.6035] [INFO] sysbus: Loading block of 464 bytes length at 0xFFE0000.
+[23:57:58.6083] [INFO] sysbus: Loading block of 4 bytes length at 0x20000000.
+[23:57:58.6354] [INFO] sysbus: Loading block of 206 bytes length at 0x303C0000.
+[23:57:58.6918] [INFO] cpu: Guessing VectorTableOffset value to be 0xFFE0000.
+[23:57:58.6969] [INFO] cpu: Setting initial values: PC = 0xFFE00AD, SP = 0x20020000.
+[23:57:58.6979] [INFO] wfi: Machine started.
+[23:57:58.7154] [INFO] blkctrl_s_aonmix: M7_CFG.WAIT cleared -- gate 2 open (INITVTOR=0x303C0000)
+[23:57:58.7157] [INFO] src: SRC.SCR.BT_RELEASE_M7 set -- gate 1 open (M7 reset released, still held by CPUWAIT)
+[23:57:58.7157] [INFO] src: BOTH GATES OPEN -- starting the Cortex-M7 at vector table 0x303C0000
+[23:57:58.7165] [INFO] src: M7 initial SP=0x0x30440000 PC=0x0x303c0008
+[23:57:58.8442] [INFO] cpu.semihosting: Program exited with reason ADP_Stopped_ApplicationExit(0x20026)
+[23:58:13.6992] [INFO] wfi: Machine paused.
+Renode is quitting
+[23:58:13.7185] [INFO] wfi: Disposed.

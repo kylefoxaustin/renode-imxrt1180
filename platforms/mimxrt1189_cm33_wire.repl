@@ -1,0 +1,11 @@
+// CM33 value platform + a harness ECHO WIRE for the NETC self-echo tests.
+// See peripherals/EchoWire.cs: this reproduces QEMU's hardcoded IP_MULTICAST_LOOP=1,
+// which imxrt1180-netc-rxfwd's oracle requires. NOT for the switched flood/portfwd
+// tests, where a shared loopback makes the switch re-ingest its own flood and storm.
+using "mimxrt1189_cm33_value.repl"
+
+// ⚠ Registered at a HARNESS ADDRESS, not because the node is memory-mapped -- it is
+// a backend and has no registers -- but because a peripheral registered `@ none` is
+// not monitor-addressable, so `connector Connect` cannot name it. 0x71000000 is
+// unused and nothing in the guest touches it.
+echowire: Network.EchoWire @ sysbus 0x71000000

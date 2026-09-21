@@ -1,0 +1,75 @@
+// MIMXRT1189 — CM7 standalone platform (Zephyr's cm7 board target).
+//
+// The M7 is the ONLY core here, so its LOCAL view is the global view:
+// ITCM @ 0x0 and DTCM @ 0x20000000, which is exactly what Zephyr's cm7 target
+// links against (`zephyr,flash = &itcm`, `zephyr,sram = &dtcm`; measured: ELF
+// LOAD at 0x0 and 0x20000000, `_vector_table` at 0x0).
+// This complements mimxrt1189_m2.repl, where the same TCMs are cpu1-scoped
+// aliases of the system-view block at 0x303C0000.
+
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    // M7 has 4 priority bits [brief]; __NVIC_PRIO_BITS = 4 in
+    // MIMXRT1189_cm7_COMMON.h. [cmsis]
+    priorityMask: 0xF0
+    // ⭐ 792 MHz, DERIVED AND CITED -- was 798, which was wrong by 0.76%.
+    // The SDK's board clock config drives the M7 root from the ARM PLL with
+    // div 1 (project_template/clock_config.c: kCLOCK_M7_ClockRoot_MuxArmPllOut,
+    // div 1), and that PLL is configured loopDivider 132 / postDivider 2:
+    //     Fout = Fin * (loopDivider / (2 * postDivider))
+    //          = 24 MHz * (132 / 4) = 24 MHz * 33 = 792 MHz
+    // CMSIS agrees: system_MIMXRT1189_cm7.h:73 DEFAULT_SYSTEM_CLOCK 792000000UL.
+    // Found while checking my own numbers after catching the same CLASS of error
+    // in the oracle's machine (their M33 read 300 where it should read 240, and
+    // chasing it showed their M7 read 300 where it should read 792). Mine was a
+    // smaller slip in the same place -- which is why I went and looked.
+    systickFrequency: 792000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m7"
+    nvic: nvic
+    // SDK board.c programs MPU region 12; the architecture allows only 8 or 16.
+    // See the note in mimxrt1189_cm33.repl. DERIVED, labelled.
+    numberOfMPURegions: 16
+
+// M7 ITCM / DTCM, 256 KiB each (IMXRT1180_M7_TCM_HALF = 0x40000). [oracle]
+itcm: Memory.MappedMemory @ sysbus 0x00000000
+    size: 0x40000
+
+dtcm: Memory.MappedMemory @ sysbus 0x20000000
+    size: 0x40000
+
+// Shared SoC RAM [brief]
+ocram1: Memory.MappedMemory @ sysbus 0x20484000
+    size: 0x7C000
+
+ocram2: Memory.MappedMemory @ sysbus 0x20500000
+    size: 0x40000
+
+// ---- Console: LPUART12, NOT LPUART1 ----
+// Zephyr's cm7 board target uses `zephyr,console = &lpuart12`, where the cm33
+// target uses lpuart1. LPUART12_BASE = 0x44580000, LPUART12_IRQn = 159. [cmsis]
+// Same fifoSize rationale as LPUART1 (FSL_FEATURE_LPUART_FIFO_SIZEn == 16).
+lpuart12: UART.NXP_LPUART @ sysbus 0x44580000
+    fifoSize: 16
+    IRQ -> nvic@159
+
+// ---- Blocks the SDK/Zephyr board init touches (same models as the CM33 side) ----
+anadig: Miscellaneous.IMXRT1180_Anadig @ sysbus 0x44480000
+ccm: Miscellaneous.IMXRT1180_CCM @ sysbus 0x44450000
+xcache: Miscellaneous.IMXRT1180_Xcache @ sysbus 0x44400000
+s3mu: Miscellaneous.IMXRT1180_S3MU @ sysbus 0x47540000
+dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
+    readyOffset: 0x0
+    readyMask: 0x80000000
+
+trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
+    ncmMask: 0x04
+
+trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
+    ncmMask: 0x1C
+
+trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
+    ncmMask: 0x1B
+
+blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000

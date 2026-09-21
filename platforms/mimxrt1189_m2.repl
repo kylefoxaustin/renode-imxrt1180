@@ -1,0 +1,193 @@
+// MIMXRT1189 — M2 platform. Extends the M0 CM33 platform with eDMA4.
+// Kept separate so M0 stays exactly as verified.
+using "mimxrt1189_cm33.repl"
+
+// ---- eDMA4 ----
+// DMA4_BASE 0x42000000 (NS) / 0x52000000 (secure). [cmsis]
+// 64 channels, TCD[n] at base + 0x10000 + n * 0x8000 -- the STRIDE IS 0x8000,
+// not the 0x1000 that Renode's model defaults to and that RT700 uses. Verified
+// against the QEMU oracle's hw/arm/imxrt1180_soc.c edma_cfg[] table, which
+// cites PERI_DMA4.h. Renode exposes this as the `channelSize` parameter, so no
+// model change is needed -- only the right number.
+edma4: DMA.IMXRT1180_eDMA @ {
+        sysbus new Bus.BusPointRegistration { address: 0x42000000 }
+    }
+    // ⚠ DEVIATION, LABELLED: RT1180's eDMA4 has **64** channels. Renode's
+    // NXP_eDMA hard-caps at 32 (MaximumNumberOfChannels), because MP_INT and
+    // MP_HRS are single 32-bit registers with one flag per channel; eDMA4 needs
+    // MP_INT_L/H pairs. That is a MODEL CHANGE, not a parameter.
+    // 32 is used here ONLY to let the pre-registered eDMA timing test run --
+    // InitCM7DMA/Prepare_CM7 uses channel 0. Channels 32-63 DO NOT EXIST in
+    // this platform and anything touching them is silently absent.
+    // eDMA4 uses GROUPED interrupts: channels 2k, 2k+1, 2k+32 and 2k+33 all
+    // share NVIC IRQ 128+k (16 IRQs, 128..143 for 64 channels). Verified against
+    // the QEMU oracle (hw/arm/imxrt1180_soc.c: "eDMA4 (64 channels, grouped IRQ:
+    // channels 2k/2k+1/2k+32/2k+33 share IRQ 128+k)"). This platform declares 32
+    // channels, so only the 2k / 2k+1 half of each group is present.
+    numberOfChannels: 32
+    0 -> nvic@128
+    1 -> nvic@128
+    2 -> nvic@129
+    3 -> nvic@129
+    4 -> nvic@130
+    5 -> nvic@130
+    6 -> nvic@131
+    7 -> nvic@131
+    8 -> nvic@132
+    9 -> nvic@132
+    10 -> nvic@133
+    11 -> nvic@133
+    12 -> nvic@134
+    13 -> nvic@134
+    14 -> nvic@135
+    15 -> nvic@135
+    16 -> nvic@136
+    17 -> nvic@136
+    18 -> nvic@137
+    19 -> nvic@137
+    20 -> nvic@138
+    21 -> nvic@138
+    22 -> nvic@139
+    23 -> nvic@139
+    24 -> nvic@140
+    25 -> nvic@140
+    26 -> nvic@141
+    27 -> nvic@141
+    28 -> nvic@142
+    29 -> nvic@142
+    30 -> nvic@143
+    31 -> nvic@143
+
+edma4_channels: DMA.IMXRT1180_eDMA_Channels @ {
+        sysbus new Bus.BusPointRegistration { address: 0x42010000 }
+    }
+    dma: edma4
+    count: 32   // see the deviation note above
+    channelSize: 0x8000
+
+// ---- Cortex-M7 secondary core ----
+// M7 has 4 priority bits [brief] -> top 4 bits implemented.
+nvic1: IRQControllers.NVIC @ {
+        sysbus new Bus.BusPointRegistration { address: 0xE000E000; cpu: cpu1 }
+    }
+    priorityMask: 0xF0
+    systickFrequency: 800000000
+    IRQ -> cpu1@0
+
+cpu1: CPU.CortexM @ sysbus
+    cpuType: "cortex-m7"
+    nvic: nvic1
+    numberOfMPURegions: 16   // see the note on cpu in mimxrt1189_cm33.repl
+    // ⭐⭐⭐ THE M7 MUST BE HELD AT RESET, AND IT WAS NOT.
+    // The brief says it plainly -- "M7 starts held", "reboot must re-park the M7
+    // held" -- and the two-gate release (SRC.SCR.BT_RELEASE_M7 + M7_CFG.WAIT) was
+    // modelled faithfully on top of a core that was never parked in the first
+    // place. Both gates worked; there was simply nothing to gate.
+    //
+    // MEASURED: `cpu1 IsHalted` read False BEFORE the machine started, with PC=0.
+    // Since the M7 ITCM is aliased at cpu1-local 0x0, a pre-loaded M7 image runs
+    // from reset: within 0.01 s of virtual time cpu1 had already reached its
+    // self-loop at 0x303c000e -- before gate 2 opened, and before the M33 zeroed
+    // the shared flag. The oracle's cm7wait then reported "M7 never ran after
+    // CPUWAIT was cleared", which was TRUE and for the opposite reason: it had
+    // already run, once, too early, and was parked in `b .` forever.
+    //
+    // ⚠ WHY THE SDK ROWS HID IT: multicore_manager and rpmsg_lite_pingpong COPY
+    // the M7 image into TCM during boot, so a free-running M7 spends the early
+    // window executing zeros and is re-pointed when the image lands. A test that
+    // PRE-LOADS the image is the only thing that can see the difference -- and the
+    // vendor examples never pre-load.
+    init:
+        IsHalted true
+
+// ---- M7 TCM: ONE physical memory, TWO views ----
+// System view (what the M33 writes through): CORE1_BOOT_ADDRESS 0x303C0000,
+// 512 KiB total. M7 local view: ITCM @ 0x0 and DTCM @ 0x20000000, 256 KiB each
+// -- the TCM's two halves. [brief] + oracle constants IMXRT1180_M7_TCM_HALF
+// (0x40000), M7_ITCM_BASE (0x0), M7_DTCM_BASE (0x20000000).
+// Modelled as two 256K blocks so each half can carry its own local alias;
+// Renode cannot alias a sub-range of a single MappedMemory.
+m7itcm: Memory.MappedMemory @ {
+        sysbus 0x303C0000;
+        sysbus new Bus.BusPointRegistration { address: 0x00000000; cpu: cpu1 }
+    }
+    size: 0x40000
+
+m7dtcm: Memory.MappedMemory @ {
+        sysbus 0x30400000;
+        sysbus new Bus.BusPointRegistration { address: 0x20000000; cpu: cpu1 }
+    }
+    size: 0x40000
+
+// ---- MU1: the inter-core mailbox ----
+// MUA (CM33 side) 0x44220000, MUB (CM7 side) 0x44230000, IRQ 21 on each core's
+// NVIC, cross-wired MUA.TR[n] -> MUB.RR[n]. [brief]
+// ⭐ REUSED WHOLESALE: Renode's IMXRT700_MessagingUnit matches all 15 RT1180 MU
+// offsets and implements the GP doorbell (GCR[n]=1 -> other side's GSR[n] ->
+// other core's IRQ, gated on that side's GIER) that RPMsg rides. Verified
+// offset-by-offset in the survey before use; only the addresses differ from
+// RT700. Secure aliases at +0x1000_0000.
+mu1: Miscellaneous.IMXRT700_MessagingUnit @ {
+        sysbus new Bus.BusMultiRegistration { address: 0x44220000; size: 0x1000; cpu: cpu; region: "aInstance" };
+        sysbus new Bus.BusMultiRegistration { address: 0x44230000; size: 0x1000; cpu: cpu1; region: "bInstance" }
+    }
+    AInstanceIRQ -> nvic@21
+    BInstanceIRQ -> nvic1@21
+
+// ---- LPADC1/2 ------------------------------------------------------------
+// Added for imxrt1180-cm7boot, which checks that the M7's BACKGROUND ALIAS reaches
+// the SoC's peripherals: it reads ADC1 VERID at 0x42600000 and requires the
+// MIMXRT1189 reset value 0x0200_2C1B. Without ADC1 mapped, the M7's per-core view
+// check failed on its fourth clause ("ITCM/DTCM/background") -- a true statement
+// about a machine that had no ADC in it, not a defect in the M7's memory view.
+// Bases + IRQs SOURCED from the oracle's SoC wiring, same as the motor platform.
+// No dmareq lines here: this platform models no DMA request router, and a dangling
+// GPIO connection is worse than an absent one.
+adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
+    0 -> nvic@93
+
+adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
+    0 -> nvic@189
+
+// ---- TRDC1..3 (config stub -- enforces nothing, see the .cs) ----
+// Bases and per-instance ncmMask from the QEMU oracle's trdc_base[] /
+// trdc_ncm_mask[] tables in hw/arm/imxrt1180_soc.c.
+trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
+    ncmMask: 0x04
+
+trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
+    ncmMask: 0x1C
+
+trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
+    ncmMask: 0x1B
+
+// ---- DCDC buck regulator ----
+// fsl_dcdc's DCDC_SetVDD1P0BuckModeTargetVoltage spins on REG0[STS_DC_OK]
+// (bit 31) waiting for the converter to settle -- an infinite loop against an
+// unmodelled block. Found empirically: hang at PC 0xffe3580, the
+// `and #0x80000000 / cmp / bne` loop right after SDK_DelayAtLeastUs.
+// The virtual regulator is always settled, so STS_DC_OK is forced; other REG*
+// fields are register-backed. Base + mask from the oracle's
+// imxrt1180_add_rdy_bit(s, "dcdc", 0x44520000, 0x1000, 0, 0x80000000).
+dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
+    readyOffset: 0x0
+    readyMask: 0x80000000
+
+// ---- BLK_CTRL_WAKEUPMIX ----
+// Plain register-backed window (no ready bit), matching the oracle's
+// imxrt1180_add_rdy(s, "blk-ctrl-wakeupmix", 0x42420000, 0x1000). Previously
+// left unmapped here; mapping it removes a logged-and-unmapped latent gap at
+// no cost. @rt1180emulator confirmed their tree has no real behaviour either.
+blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000
+
+// ---- The two-gate M7 release (SRC + BLK_CTRL_S_AONMIX) ----
+// SRC_GENERAL_REG_BASE 0x44460000 (SCR @0x10), BLK_CTRL_S_AONMIX_BASE
+// 0x444F0000 (M7_CFG @0x80). [cmsis][brief]
+// Both were observed WRITTEN and unmapped before this was added: 0x44460010 and
+// 0x444F0080 appeared in the unmapped-access log while MCMGR_StartCore spun.
+src: Miscellaneous.IMXRT1180_SRC @ sysbus 0x44460000
+    secondaryCore: cpu1
+
+blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
+    gates: src
+    isBlkCtrl: true

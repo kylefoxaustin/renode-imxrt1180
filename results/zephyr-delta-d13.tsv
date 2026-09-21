@@ -1,0 +1,3 @@
+target	qemu_lines	renode_lines	verdict
+cm33-hello_world	2	0	qemu-only
+cm33-samples-hello_world	2	0	qemu-only

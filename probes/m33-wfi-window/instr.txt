@@ -1,0 +1,2 @@
+WFI-WINDOW: pending the IRQ while disabled, then enable+WFI in one block
+WFI-WINDOW: PASS - woke inside the window, handler ran, main resumed

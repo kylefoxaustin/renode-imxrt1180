@@ -1,0 +1,47 @@
+:name: MIMXRT1189-EVK (CM33) — M0 hello_world
+:description: Stock NXP SDK demo_apps/hello_world, cm33, --config debug
+
+using sysbus
+include @/home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+
+mach create "rt1180"
+machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_cm33.repl
+
+
+# ⭐ BLANKET TrustZone-M SECURE MIRROR.
+# The whole NS peripheral window 0x4000_0000..0x4FFF_FFFF is mirrored at
+# 0x5000_0000 in ONE statement, instead of giving each peripheral its own
+# "+0x1000_0000" registration.
+#
+# WHY: per-peripheral aliasing is structurally prone to silently omitting the
+# secure alias of any block the test corpus never touches secure-side. That is
+# not hypothetical -- it happened here: S3MU was the ONE block without its alias,
+# because every NXP SDK example runs non-secure, and only Zephyr (which runs the
+# cm33 SECURE) exposed it by polling S3MU TSR at 0x5754_0124.
+# A blanket mirror is immune by construction.
+# Architecture noted by @rt1180emulator, whose QEMU SoC does the same thing with
+# one memory_region_init_alias(0x40000000, size 0x10000000) mapped at 0x50000000.
+sysbus Redirect 0x50000000 0x40000000 0x10000000
+
+showAnalyzer lpuart1
+
+# Instruction rate. Renode's default (~100 MIPS) is far below the real core, so
+# firmware delay loops consume absurd amounts of VIRTUAL time.
+# 240 = DEFAULT_SYSTEM_CLOCK for the cm33 (system_MIMXRT1189_cm33.h).
+# APPROXIMATION, labelled: MIPS is instructions/second; equating it with core MHz
+# assumes IPC=1. Timing only -- it does not change functional behaviour.
+cpu PerformanceInMips 240
+
+
+# The firmware under test. `?=` means "only if not already set", so a caller can
+# point this at its own build with `-e '$bin=@/path/to/hello_world_cm33.elf'`
+# BEFORE the include. The default is the reboot-persistent artifact cache, NOT a
+# session scratchpad -- a scratchpad path makes the quickstart in README.md a
+# promise the repo cannot keep for anyone but the session that wrote it.
+$bin?=@/home/kyle/.cache/rt1180-artifacts/sdk/hello_world_cm33.elf
+
+macro reset
+"""
+    sysbus LoadELF $bin
+"""
+runMacro $reset

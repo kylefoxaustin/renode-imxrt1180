@@ -1,0 +1,42 @@
+// CM33 value platform + THREE independent NETC wire ports on point-to-point UDP.
+//
+// imxrt1180-netc-flood asserts that a broadcast ingressing wire 1 floods out BOTH 0
+// and 2 and is suppressed on its own ingress port. That is only expressible if the
+// three ports are INDEPENDENTLY OBSERVABLE, so each is its own connectable node
+// rather than the block's single IMACInterface.
+//
+// Socket layout mirrors @rt1180emulator's run.sh exactly, so their flood.py /
+// portfwd.py drive this unchanged:
+//   port 0: emulator receives on 44002, sends egress to the harness on 44001
+//   port 1: receives on 44012, sends to 44011   (the injection wire)
+//   port 2: receives on 44022, sends to 44021
+//
+// ⚠ POINT-TO-POINT, NEVER SHARED. A switch flooding onto a reflective segment
+// re-ingests its own flood and storms -- a real loop, but not the topology under
+// test, and it would read as a forwarding defect while being a backend artefact.
+// EchoWire (shared, reflective) is for netc-rxfwd's self-echo oracle only.
+using "mimxrt1189_cm33_value.repl"
+
+netc_port0: Network.IMXRT1180_NETC_Port @ sysbus 0x71001000
+    portIndex: 0
+    Switch: netc
+
+netc_port1: Network.IMXRT1180_NETC_Port @ sysbus 0x71002000
+    portIndex: 1
+    Switch: netc
+
+netc_port2: Network.IMXRT1180_NETC_Port @ sysbus 0x71003000
+    portIndex: 2
+    Switch: netc
+
+udpwire0: Network.UdpWire @ sysbus 0x71011000
+    listenPort: 44002
+    remotePort: 44001
+
+udpwire1: Network.UdpWire @ sysbus 0x71012000
+    listenPort: 44012
+    remotePort: 44011
+
+udpwire2: Network.UdpWire @ sysbus 0x71013000
+    listenPort: 44022
+    remotePort: 44021

@@ -1,0 +1,12 @@
+# Raw per-run consoles: ~98 MB and regenerable by the runners. The CURATED
+# evidence in results/ (scorecards, delta study, the .tsv result tables) IS
+# tracked -- see the un-ignore rules below. A claim in a .md here is only as
+# good as the .tsv beside it, so the tables ship with the prose.
+results/*
+!results/*.md
+!results/*.tsv
+
+# Renode test-failure dumps and rotated logs: artefacts of a run, not of the model.
+snapshots/
+logs/
+*.log

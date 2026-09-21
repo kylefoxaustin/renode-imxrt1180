@@ -1,0 +1,15 @@
+target	qemu_lines	d13_lines	difflines	baseline_class	d13_verdict
+cm33-tests-arch-arm-arm_custom_interrupt	21	21	0	identical	IDENTICAL
+cm33-tests-arch-arm-arm_hardfault_validation	39	39	0	identical	IDENTICAL
+cm33-tests-arch-arm-arm_interrupt	83	83	6	len+content	same-len/6L
+cm33-tests-arch-arm-arm_irq_advanced_features	27	27	0	identical	IDENTICAL
+cm33-tests-arch-arm-arm_irq_vector_table	18	18	0	identical	IDENTICAL
+cm33-tests-arch-arm-arm_mpu_wt	24	50	46	len+content	DIFFER/46L
+cm33-tests-arch-arm-arm_runtime_nmi	20	20	0	identical	IDENTICAL
+cm33-tests-arch-arm-arm_thread_swap	29	29	0	len+content	IDENTICAL
+cm33-tests-kernel-device	116	114	4	len+content	DIFFER/4L
+cm33-tests-kernel-early_sleep	22	22	2	CONTENT	same-len/2L
+cm33-tests-kernel-threads-thread_apis	249	247	10	len+content	DIFFER/10L
+cm7-tests-arch-arm-arm_hardfault_validation	39	39	0	identical	IDENTICAL
+cm7-tests-arch-arm-arm_interrupt	83	83	6	CONTENT	same-len/6L
+cm7-tests-kernel-threads-thread_apis	249	249	0	identical	IDENTICAL

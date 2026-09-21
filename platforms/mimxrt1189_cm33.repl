@@ -1,0 +1,235 @@
+// MIMXRT1189 (i.MX RT1180) — CM33 boot core. M0 scope: core + memory map + LPUART1.
+//
+// PROVENANCE OF EVERY NUMBER BELOW — no value here is invented:
+//   [brief]  = the verified-facts table in CLAUDE.md, grounded from the QEMU model
+//   [cmsis]  = devices/RT/RT1180/MIMXRT1189/MIMXRT1189_cm33_COMMON.h
+//   [elf]    = read out of the built hello_world_cm33.elf
+// Anything I could not source is marked ASSUMED and must not be trusted.
+
+nvic: IRQControllers.NVIC @ sysbus 0xE000E000
+    // M33 has 3 priority bits [brief] -> the 3 MSBs are implemented.
+    priorityMask: 0xE0
+    // ASSUMED: CM33 core clock. Affects SysTick rate only, not M0 correctness.
+    systickFrequency: 240000000
+    IRQ -> cpu@0
+
+cpu: CPU.CortexM @ sysbus
+    cpuType: "cortex-m33"
+    nvic: nvic
+    // TrustZone-M. The RT1180's CM33 has it -- the entire NS/secure +0x1000_0000
+    // alias scheme this platform relies on IS TrustZone -- and Renode's CortexM
+    // defaults enableTrustZone to FALSE. Zephyr's cm33 build is secure firmware
+    // (CONFIG_ARM_SECURE_FIRMWARE=y) and its fault handler requires EXC_RETURN
+    // bit 0 (ES, Exception Secure) to be set; on a core without TrustZone that
+    // bit cannot be set, so get_esf() returns NULL and every fault path asserts.
+    enableTrustZone: true
+    // DERIVED (not from a datasheet, and labelled as such): the ARMv8-M/ARMv7-M
+    // MPU implements either 8 or 16 regions. BOARD_ConfigMPU in the SDK's
+    // board.c programs region 12 on BOTH cores, so the device must have 16.
+    // Renode's CortexM defaults to 8, which aborts the core with
+    // "Trying to use non-existent MPU region" -- observed on the M7 at PC 0x1648,
+    // faulting region 11. CMSIS gives __MPU_PRESENT but no region count, so this
+    // cannot be sourced; the derivation is recorded instead of a bare number.
+    numberOfMPURegions: 16
+
+// ---- Memory map [brief] ----
+
+// CM33 code TCM. `--config debug` images link here; verified against the ELF,
+// which has LOAD segments at 0x0ffe0000 (vectors) and 0x0ffe0400 (text). [elf]
+// The second registration is the DMA-MASTER ALIAS: a bus master (eDMA) sees the
+// CM33 TCMs at different addresses than the core does. From the SDK's own table
+// (M33_CFG[TCM_SIZE] = 0, the reset value), via the QEMU oracle
+// (IMXRT1180_CODE_TCM_DMA_ALIAS / IMXRT1180_SYS_TCM_DMA_ALIAS):
+//     CTCM 0x0FFE0000 -> 0x201E0000 ;  STCM 0x20000000 -> 0x20200000  (128 KiB)
+// The oracle records this as the reason stock edma4/scatter_gather failed while
+// every other eDMA example passed: it is the only one putting its TCD pool in
+// AT_QUICKACCESS_SECTION (TCM). The others use AT_NONCACHEABLE_SECTION -> OCRAM,
+// where local and DMA addresses coincide and the missing alias cannot be felt.
+// The alias is registered GLOBALLY (no cpu:) precisely because it exists for
+// bus masters, not for the core.
+itcm: Memory.MappedMemory @ {
+        sysbus 0x0FFE0000;
+        sysbus 0x201E0000
+    }
+    size: 0x20000
+
+// CM33 system TCM (DTCM). ELF LOAD at 0x20000000. [brief][elf]
+// ⚠ SCOPED TO `cpu`. The M7's LOCAL view also places its DTCM at 0x20000000
+// (see mimxrt1189_m2.repl). A GLOBAL registration here wins for BOTH cores, so
+// the M7's stores land in the M33's DTCM -- measured: the M33's
+// MCMGR_eventTable held the M7's handler addresses (0x260D/0x2673) while the
+// M7's own DTCM read back all zeros. On silicon these are two distinct TCMs.
+dtcm: Memory.MappedMemory @ {
+        sysbus new Bus.BusPointRegistration { address: 0x20000000; cpu: cpu };
+        sysbus 0x20200000
+    }
+    size: 0x20000
+
+// OCRAM1. ELF places .ncache here (LOAD at 0x20484000). [brief][elf]
+// NOTE: on real HW the first 16K is TRDC-blocked; not modelled (M0 does not need it).
+ocram1: Memory.MappedMemory @ sysbus 0x20484000
+    size: 0x7C000
+
+// OCRAM2 [brief]
+// ⭐ OCRAM2 IS OWNED BY MECC2, NOT BY A MappedMemory. The ECC controller must
+// INTERCEPT this window: an injected bit-flip is baked into the stored codeword
+// on write and only surfaces on a later read, which a plain RAM plus a register
+// block cannot express. MECC2 fronts OCRAM2 and MECC1 fronts OCRAM1 on silicon;
+// only MECC2 is intercepted here because only OCRAM2 is ECC-exercised by the SDK
+// corpus -- OCRAM1 stays plain memory, and a MECC1-on-OCRAM1 example would NOT be
+// supported. That is the same limitation the QEMU oracle declares, for the same
+// reason (intercepting OCRAM1 would make the M33/M7 shared window an IO region).
+// Bases/size [cmsis]; IRQ 92 from the oracle's imxrt1180_soc.c:612.
+mecc2: Miscellaneous.IMXRT1180_MECC @ {
+        sysbus 0x42930000;
+        sysbus new Bus.BusMultiRegistration { address: 0x20500000; size: 0x40000; region: "ocram" }
+    }
+    ocramSize: 0x40000
+    IRQ -> nvic@92
+
+mecc1: Miscellaneous.IMXRT1180_MECC @ sysbus 0x42920000
+    ocramSize: 0x7C000
+    IRQ -> nvic@91
+
+// ---- Console [brief]: LPUART1 @ 0x44380000, IRQ 19 ----
+// IRQ 19 confirmed independently: LPUART1_IRQn = 19 in both the cm33 and cm7
+// CMSIS headers. [cmsis]
+// The built image references 0x44380000 (the NON-SECURE alias) 3 times and the
+// secure alias 0x54380000 zero times, so the NS registration alone suffices for
+// M0. [elf]  The secure alias is added anyway (+0x1000_0000) because the CMSIS
+// header defines LPUART1_BASE as 0x54380000 for secure builds. [cmsis]
+lpuart1: UART.NXP_LPUART @ sysbus 0x44380000
+    // RT1180's LPUART FIFO is 16 deep. GROUNDED, not guessed:
+    // FSL_FEATURE_LPUART_FIFO_SIZEn(x) == (16) in MIMXRT1189_cm33_features.h:757.
+    // Renode's model defaults to 256, which would report a wrong encoded depth
+    // in FIFO[RX/TXFIFOSIZE].
+    fifoSize: 16
+    IRQ -> nvic@19
+
+// ⚠ KNOWN FIDELITY GAP IN THE SHIPPED RENODE MODEL (confirmed, not suspected).
+// RT1180's WATER fields (devices/RT/RT1180/periph/PERI_LPUART.h) are WIDER than
+// UART.NXP_LPUART implements -- that model matches the MCX A287/A577 LPUART
+// variant (identical narrow masks in their PERI_LPUART.h), not this one:
+//     field    RT1180 mask   bits       Renode      verdict
+//     TXWATER  0x0000000F    [3:0]  4   [1:0]  2    too narrow
+//     TXCOUNT  0x00001F00    [12:8] 5   [10:8] 3    too narrow
+//     RXWATER  0x000F0000    [19:16]4   [17:16]2    too narrow
+//     RXCOUNT  0x1F000000    [28:24]5   [26:24]3    too narrow (clips at 7)
+// With a 16-deep FIFO, RXCOUNT can never report a fill above 7. BENIGN for M0
+// (hello_world's echo loop reads 0, and 0 is 0 in both encodings) and benign
+// for any driver that uses the compile-time FSL_FEATURE_LPUART_FIFO_SIZEn
+// instead of reading these back -- which fsl_lpuart.c does. Recorded because
+// it is a real difference from silicon, not because it bites M0.
+
+// ---- ANADIG (OSC + PLL + PMU clock-ready) ----
+// Required for M0: BOARD_BootClockRUN spins on ANADIG_OSC->OSC_24M_CTRL bit 30
+// (OSC_24M_STABLE) at 0x44484320. Found empirically by running and reading the
+// hang PC, then identified from the CMSIS header; semantics ported from the
+// QEMU oracle's hw/misc/imxrt1180_anadig.c rather than re-derived. [brief][cmsis]
+// ANADIG_OSC_BASE = 0x44480000 (NS) / 0x54480000 (secure). [cmsis]
+anadig: Miscellaneous.IMXRT1180_Anadig @ sysbus 0x44480000
+
+// ---- S3MU: the Messaging Unit to the EdgeLock (ELE) secure enclave ----
+// Required for M0: board init issues ELE commands and spins on S3MU TSR
+// (0x47540124) for transmit-ready. Base 0x47540000 [brief].
+// Semantics ported from the QEMU oracle, INCLUDING its whitelist discipline:
+// commands whose outcome the model does not reproduce get a well-formed
+// NON-SUCCESS reply rather than a fabricated success.
+// ⚠ The secure alias (+0x1000_0000) was MISSING here until Zephyr found it.
+// The NXP SDK images use the NON-SECURE view (0x47540000); Zephyr's cm33 build
+// runs secure and polls S3MU TSR at 0x57540124. A different firmware stack
+// exercising a different alias is exactly the gap an oracle-guided bring-up
+// cannot surface, because the oracle was built against the SDK.
+s3mu: Miscellaneous.IMXRT1180_S3MU @ sysbus 0x47540000
+
+// ---- XCACHE (platform cache controller) — completion, not caching ----
+// XCACHE_PC_BASE 0x44400000, XCACHE_PS_BASE 0x44400800. [cmsis]
+// Both banks live in one 0x1000 region (the model keys on offset & 0x7FF).
+xcache: Miscellaneous.IMXRT1180_Xcache @ sysbus 0x44400000
+
+// ---- FlexSPI1 control registers — M0-SCOPE IDLE/RESET STUB (see the .cs) ----
+// FLEXSPI1_BASE 0x425E0000. [cmsis]  BOARD_DeinitFlash polls STS0 @0xE0 for
+// ARBIDLE then SEQIDLE. NO flash is modelled and none is mapped at the XIP
+// window 0x28000000 — `--config debug` images link to TCM and never fetch
+// from flash, so mapping a fake NOR would add a lie, not fidelity.
+// ⭐ REUSED: Renode's own SPI.IMXRT_FlexSPI, plus its ISSI_IS25WP flash model.
+// The register map was VERIFIED offset-by-offset AND reset-value-by-reset-value
+// against the QEMU oracle's hw/ssi/imxrt1180_flexspi.c before reuse:
+//   MCR0 0x00 (FFFF80C2) MCR1 0x04 MCR2 0x08 (200081F7) AHBCR 0x0C (00000018)
+//   INTEN 0x10 INTR 0x14 LUTKEY 0x18 (5AF05AF0) LUTCR 0x1C (00000002)
+//   IPCR0 0xA0 IPCR1 0xA4 IPCMD 0xB0 IPRXFCR 0xB8 IPTXFCR 0xBC
+//   STS0 0xE0 (00000002) STS2 0xE8 (01000100) RFDR 0x100 TFDR 0x180 LUT 0x200
+// -- identical, every one. The RT1180 carries the same FlexSPI IP as the RT10xx/
+// RT500 parts Renode already supports.
+//
+// The EVK's part is an ISSI IS25WP128 and Renode ships ISSI_IS25WP with
+// ManufacturerId 0x9D -- which is exactly the vendor ID the oracle's QEMU prints
+// on this example ("Vendor ID: 0x9d", MEASURED here). Right part, not a stand-in.
+//
+// The "ciphertext" region is the memory-mapped XIP window: reads there are
+// translated into flash commands. 0x28000000 NS + 0x38000000 secure alias, 16 MiB.
+// The "ciphertext" region is the memory-mapped XIP window: reads there are
+// translated into LUT flash commands. FlexSPI1_AMBA_BASE = 0x28000000 (CMSIS,
+// non-secure), 16 MiB -- which is what every SDK example uses.
+// ⚠ The SECURE alias 0x38000000 is deliberately NOT registered here. Zephyr's
+// cm33 image is XIP-LINKED and its ELF LOADs at 0x38000000, so that address has
+// to be plain writable memory, not a command-translated window; the Zephyr
+// platform maps it. Registering both here shadowed it and broke both cm33 Zephyr
+// targets -- MEASURED, caught by the regression suite, not by reasoning.
+// ⭐⭐⭐ RENODE CANNOT FETCH INSTRUCTIONS FROM A PERIPHERAL-BACKED WINDOW.
+// MEASURED, 2026-09-20: with 0x28000000 registered as the controller's "ciphertext"
+// region, DATA reads work perfectly once the LUT is programmed -- 0x28000000 ->
+// 0x20020000 and 0x28000004 -> 0x28000009, byte-matching the image -- and then:
+//
+//     cpu: CPU abort [PC=0x28000008]: Trying to execute code outside RAM or ROM
+//
+// tlib translates only from real RAM/ROM. A command-translated window is READABLE
+// but NOT EXECUTABLE, so NO XIP-linked image could run against it at all. That is
+// why imxrt1180-hello (entry 0x28000009) read NO-OUTPUT: not a missing peripheral,
+// an unexecutable map.
+//
+// This is the SAME conclusion the Zephyr platform already reached for the secure
+// alias at 0x38000000, and for the same reason -- recorded a few lines above as
+// "that address has to be plain writable memory, not a command-translated window".
+// The base map just never applied it to the non-secure window.
+//
+// So the XIP window is now backed by THE NOR'S OWN STORE. This is strictly more
+// faithful than mapping an unrelated RAM there and loading an ELF into it: the
+// bytes the CPU fetches ARE the bytes in the flash, through the same MappedMemory
+// the ISSI model serves, so "program the flash, then execute" is a real sequence.
+// The controller keeps its register interface and its IP-command path.
+//
+// ⚠ WHAT THIS DOES NOT MODEL: the AHB read sequence is no longer on the fetch path,
+// so a misprogrammed LUT cannot break execution the way it would on silicon. Noted,
+// not claimed as fidelity.
+flexspi1: SPI.IMXRT1180_FlexSPI_Ctrl @ sysbus 0x425E0000
+
+flexspi1_flash_memory: Memory.MappedMemory @ sysbus 0x28000000
+    size: 0x1000000
+
+flexspi1_nor: SPI.ISSI_IS25WP @ flexspi1
+    underlyingMemory: flexspi1_flash_memory
+
+// ---- CCM (clock gates + roots) ----
+// CCM_BASE 0x44450000 [cmsis], 64 KiB. Required for M0: board init spins on
+// LPCG[34].STATUS0 @0x444588A0 waiting for the gate it just opened. Semantics
+// and reset values ported from the QEMU oracle's hw/misc/imxrt1180_ccm.c.
+ccm: Miscellaneous.IMXRT1180_CCM @ sysbus 0x44450000
+    // The CCM computes REAL clock-root frequencies from the guest's own registers,
+    // and the AUDIO PLL / PFD fracs live in ANADIG -- so it needs the reference.
+    // Without it the audio roots report 0 Hz and SAY SO at runtime, rather than
+    // inventing a plausible MCLK. (Oracle: a fabricated 6 MHz once reached the
+    // guest's baud-rate arithmetic flagged only by a C comment firmware can't read.)
+    anadig: anadig
+
+// FLEXSPI2_BASE 0x445E0000 [cmsis] — BOARD_DeinitFlash deinits BOTH instances.
+flexspi2: Miscellaneous.IMXRT1180_FlexSPI @ sysbus 0x445E0000
+
+sysbus:
+    init:
+        // Peripheral window is 0x4000_0000 + 0x2000_0000 [brief]. Unmapped
+        // accesses inside it are logged (warning) and read as 0 rather than
+        // faulting -- that log IS the bring-up instrument for finding which
+        // blocks hello_world actually touches. Nothing is stubbed pre-emptively:
+        // stubbing before seeing the trace would hide the very thing I need.
+        Tag <0xE0001000 0xE0001FFF> "DWT"

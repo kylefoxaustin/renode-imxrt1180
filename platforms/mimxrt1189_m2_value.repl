@@ -1,0 +1,23 @@
+// MIMXRT1189 — DUAL-CORE platform for the oracle's bare-metal VALUE TESTS.
+//
+// = mimxrt1189_m2.repl (M33 + M7 + MU1 + eDMA4 + the two-gate boot chain) plus
+//   semihosting. Their cm7boot / cm7wait / cm7-mpu / cm7-systick / dualcore /
+//   ele-corestart / edma-swstart-order tests all need both cores.
+//
+// Same separation rationale as mimxrt1189_cm33_value.repl: m2 carries the M2 rung
+// and the RPMsg rows, and is not modified here.
+using "mimxrt1189_m2.repl"
+
+semihosting: CPU.SemihostingHandler @ cpu
+
+semihosting_uart: UART.SemihostingUart @ semihosting
+
+// ⭐ THE M7 NEEDS ITS OWN HANDLER, AND THAT WAS MEASURED, NOT ANTICIPATED.
+// The first sweep returned NO-OUTPUT for cm7boot, cm7-mpu and cm7-systick. Those
+// are M7 IMAGES -- cm7boot.elf has entry 0x9, i.e. ITCM@0, the M7's local view --
+// and a SemihostingHandler is registered PER CPU. With a handler on the M33 only,
+// the M7's `bkpt 0xAB` had nowhere to go and the test was silent, which reads
+// exactly like a test that failed to run. Semihosting is per-core; so is this.
+semihosting1: CPU.SemihostingHandler @ cpu1
+
+semihosting1_uart: UART.SemihostingUart @ semihosting1

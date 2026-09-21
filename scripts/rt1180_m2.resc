@@ -1,0 +1,59 @@
+:name: MIMXRT1189-EVK — M2 multicore_manager
+:description: Stock NXP SDK demo_apps/hello_world, cm33, --config debug
+
+using sysbus
+include @/home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+
+mach create "rt1180"
+machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_m2.repl
+
+
+# ⭐ BLANKET TrustZone-M SECURE MIRROR.
+# The whole NS peripheral window 0x4000_0000..0x4FFF_FFFF is mirrored at
+# 0x5000_0000 in ONE statement, instead of giving each peripheral its own
+# "+0x1000_0000" registration.
+#
+# WHY: per-peripheral aliasing is structurally prone to silently omitting the
+# secure alias of any block the test corpus never touches secure-side. That is
+# not hypothetical -- it happened here: S3MU was the ONE block without its alias,
+# because every NXP SDK example runs non-secure, and only Zephyr (which runs the
+# cm33 SECURE) exposed it by polling S3MU TSR at 0x5754_0124.
+# A blanket mirror is immune by construction.
+# Architecture noted by @rt1180emulator, whose QEMU SoC does the same thing with
+# one memory_region_init_alias(0x40000000, size 0x10000000) mapped at 0x50000000.
+sysbus Redirect 0x50000000 0x40000000 0x10000000
+
+showAnalyzer lpuart1
+
+cpu PerformanceInMips 240
+# ⚠ THIS COMMENT USED TO SAY 798, AND THE ARITHMETIC IN IT WAS WRONG.
+# It claimed "798 = the core-clock the M7 firmware passes to SDK_DelayAtLeastUs
+# (literal 0x2FAF0800)". But 0x2FAF0800 = 800,000,000, not 798,000,000 -- so the
+# constant I derived from it matched NEITHER source. Three numbers are in play:
+#   800 MHz  the firmware's delay-loop argument, a conservative MAXIMUM for a
+#            busy-wait (SDK_DEVICE_MAXIMUM_CPU_CLOCK_FREQUENCY shape), and NXP's
+#            headline figure for the part;
+#   792 MHz  the clock the board ACTUALLY configures -- ARM PLL loopDivider 132,
+#            postDivider 2 => 24 MHz * 132/(2*2) = 792 MHz (SDK
+#            project_template/clock_config.c), and CMSIS
+#            system_MIMXRT1189_cm7.h:73 DEFAULT_SYSTEM_CLOCK = 792000000UL;
+#   798 MHz  mine, from bad arithmetic on the first of those.
+# The configured clock is what a core runs at, so: 792. Same IPC=1 approximation.
+cpu1 PerformanceInMips 792
+
+
+# $elf defaults to the PINNED artifact (MANIFEST.sha256) so this script is
+# self-contained and provably runs the same bytes QEMU is given.
+$elf?=@/home/kyle/.cache/rt1180-artifacts/sdk/multicore_manager_primary_core_cm33.elf
+
+macro reset
+"""
+    # ⚠ THE M7 MUST START HELD. Renode starts every CPU running by default; the
+    # RT1180's M7 comes out of reset PARKED (M7_CFG.WAIT resets HIGH) and runs
+    # only after the M33 performs the two-gate release. Without this the M7
+    # executes the M33's image from the shared bus -- observed directly: eDMA
+    # writes tagged "[cpu1: 0xFFE1AB4]", i.e. the M7 running InitCM7DMA.
+    cpu1 IsHalted true
+    sysbus LoadELF $elf
+"""
+runMacro $reset

@@ -1,0 +1,1 @@
+WFI-WINDOW: pending the IRQ while disabled, then enable+WFI in one block

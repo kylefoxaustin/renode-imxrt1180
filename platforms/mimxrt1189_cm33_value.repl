@@ -1,0 +1,19 @@
+// MIMXRT1189 — broad CM33 platform for the oracle's bare-metal VALUE TESTS.
+//
+// = mimxrt1189_m1.repl (CM33 + eDMA4 + LPI2C x6 + WM8962 + FXLS8974 + USB/USBPHY
+//   + SAI1 + ASRC + NETC + MSGINTR x6) plus the semihosting path their tests
+//   report through.
+//
+// ⭐ KEPT SEPARATE FROM m1.repl DELIBERATELY. m1 is the platform 19 published
+// corpus rows were measured on; adding anything to it -- even something as inert
+// as a semihosting handler no SDK or Zephyr image ever invokes -- would change the
+// platform under results that are already published. "Inert" is an assumption, and
+// this project has a long list of assumptions that were not.
+using "mimxrt1189_m1.repl"
+
+// Their tests use `bkpt 0xAB` / SYS_WRITE0, not a UART. With no handler registered
+// the CPU logs "Semihosting handler is not registered" and the test is silent --
+// which reads exactly like a test that failed to run.
+semihosting: CPU.SemihostingHandler @ cpu
+
+semihosting_uart: UART.SemihostingUart @ semihosting

@@ -1,0 +1,69 @@
+--- a/arch/arm/helper.c
++++ b/arch/arm/helper.c
+@@ -1860,8 +1860,34 @@
+     }
+ 
+     if(arm_feature(env, ARM_FEATURE_V8)) {
+-        /* We're changing v8-M mode here after we know which security state we're targeting. On v8-M SPSEL is always saved. */
+-        *lr = deposit32(*lr, ARM_EXC_RETURN_SPSEL, 1, FIELD_EX32(env->v7m.control[secure_target], V7M_CONTROL, SPSEL));
++        /* [RT1180 PATCH -- Renode defect #11]
++         * We're changing v8-M mode here after we know which security state we're targeting. On v8-M SPSEL is always saved.
++         *
++         * BUT: EXC_RETURN.SPSEL must describe the stack the frame was actually
++         * pushed on, and PushStack() always uses the Main stack when the
++         * exception is taken from Handler mode. The architecture guarantees this
++         * by clearing CONTROL.SPSEL in ExceptionTaken(); tlib does not clear it
++         * (it models "handler mode implies MSP" structurally, in
++         * is_using_process_sp()), so the pre-empted thread's stale
++         * CONTROL.SPSEL=1 leaked into the EXC_RETURN handed to software on a
++         * NESTED exception -- producing 0xFFFFFFF5 (Mode=Handler AND
++         * SPSEL=Process), which cannot occur on real hardware.
++         *
++         * MEASURED before this patch, Zephyr cm33 tests/arch/arm/arm_interrupt:
++         * k_oops() from an ISR pushed a correct frame on MSP (r0=3), but
++         * z_arm_svc's "tst lr,#4 / mrsne r0,PSP" followed the bad bit to PSP and
++         * read the OUTER IRQ-238 entry frame, reporting crash reason 0x4000.
++         * QEMU gets this right via write_v7m_control_spsel(env, 0) in
++         * v7m_exception_taken() (target/arm/tcg/m_helper.c:972).
++         *
++         * On a tail-chain the frame is the one already stacked, so the inherited
++         * SPSEL is correct as-is and must not be recomputed. */
++        if(!do_tailchain) {
++            bool stacked_from_thread_mode = (*lr & ARM_EXC_RETURN_MODE_MASK) != 0;
++            *lr = deposit32(*lr, ARM_EXC_RETURN_SPSEL, 1,
++                            stacked_from_thread_mode &&
++                                FIELD_EX32(env->v7m.control[secure_target], V7M_CONTROL, SPSEL));
++        }
+     }
+     return stack_status;
+ }
+@@ -3329,6 +3355,29 @@
+          */
+         if(!mpu_enabled || (!is_user && PMSA_PRIVDEFENA(env->pmsav8[secure].ctrl))) {
+             *prot = cortexm_check_default_mapping_v8(address);
++        } else if(is_user && unlikely(env->v7m.ccr[secure] & FIELD_MASK(V7M_CCR, USERSETMPEND)) &&
++                  tlib_nvic_is_stir_address(address)) {
++            /* [RT1180 PATCH -- Renode defect #12]
++             * STIR is the one SCS register the architecture makes accessible to
++             * unprivileged software, gated on CCR.USERSETMPEND. tlib already
++             * implements this on the PMSAv7 path (get_phys_addr_mpu(), the
++             * background-fault arm) but the PMSAv8 lookup the Cortex-M33 uses is
++             * a SEPARATE function and never got the rule -- so the same firmware
++             * passes on the M7 and takes an MPU DACCVIOL on the M33.
++             *
++             * MEASURED before this patch, Zephyr cm33
++             * tests/arch/arm/arm_thread_swap: the test sets CCR.USERSETMPEND on
++             * purpose, then its user thread stores to STIR (0xE000EF00) and dies
++             * with "MPU FAULT / Data Access Violation / MMFAR 0xE000EF00".
++             * QEMU is immune by shape: ptw.c exempts the whole PPB from the MPU on
++             * BOTH profiles and armv7m_nvic.c:nvic_user_access_ok() owns the
++             * per-register privilege rule -- one place to be right instead of two.
++             *
++             * Page size 0 so the permission is never cached for the whole page. */
++            *prot = PAGE_READ | PAGE_WRITE;
++            if(page_size != NULL) {
++                *page_size = 0;
++            }
+         } else {
+             goto do_fault;
+         }

@@ -1,0 +1,66 @@
+--- a/arch/arm/helper.c
++++ b/arch/arm/helper.c
+@@ -2332,6 +2332,63 @@
+         env->regs[14] = lr;
+     }
+ 
++    /* [RT1180 PATCH -- Renode defect #14] TAKING AN EXCEPTION ENDS THE
++     * LOW-POWER STATE. WFI COMPLETION IS NOT OPTIONAL.
++     *
++     * MEASURED, at this exact point, by an instrumented build of this file:
++     *
++     *     cpu1: D14PROBE exception=37 entry wfi=1 wfe=0 pc=0x303c0098
++     *
++     * i.e. the PE takes an exception while env->wfi is still 1. The guest state is
++     * a complete, correct entry -- SP=0x3043ffe0 (a 32-byte frame pushed),
++     * LR=0xfffffff9 (a valid EXC_RETURN), PC=<handler>, NVIC IABR bit set -- and
++     * then ZERO further instructions execute. The instruction counter froze at 10
++     * for the rest of the run.
++     *
++     * HOW IT GETS HERE WITH wfi==1 (this is the part I first got wrong):
++     * HELPER(wfi) does NOT longjmp. It sets env->wfi = 1 and
++     * env->exception_index = EXCP_WFI, and the translation block then exits
++     * normally (DISAS_WFI -> gen_helper_wfi + gen_exit_tb_no_chaining), returning
++     * into the SAME cpu_exec() inner loop. On the very next iteration that loop
++     * reads env->interrupt_request, calls process_interrupt(), and the exception is
++     * taken right here -- with the sleep flag still set, because cpu_has_work() was
++     * never consulted again. Immediately afterwards cpu-exec.c does
++     *
++     *     if(env->exception_index == EXCP_DEBUG || env->exception_index == EXCP_WFI)
++     *         cpu_loop_exit_without_hook(env);
++     *     env->exception_index = -1;
++     *
++     * and exception_index is STILL EXCP_WFI from HELPER(wfi) -- that test runs
++     * BEFORE the reset -- so cpu_exec returns EXCP_WFI and the PE is parked INSIDE
++     * its own handler.
++     *
++     * WHY IT CAN NEVER RECOVER: the instant the exception was taken the IRQ moved
++     * from PENDING to ACTIVE, and cpu_has_work()'s Cortex-M test is
++     * tlib_nvic_get_pending_masked_irq() != 0 (cpu.h). An active interrupt is,
++     * correctly, not pending -- so that test is false forever after and env->wfi is
++     * never cleared again. The one event that would have cleared the flag is the
++     * very event that consumed it.
++     *
++     * Armv8-M ARM: WFI completes when an interrupt is taken. A PE cannot be in a
++     * WFI low-power state while executing an exception handler, so clearing the
++     * flag on entry is unconditional, not heuristic.
++     *
++     * Placed after the vector loop so it covers BOTH terminal paths -- a vector
++     * successfully taken and v7m_enter_lockup() -- because a locked-up PE is also
++     * not asleep (it fetches nothing, but cpu_exec must reach the lockup return
++     * rather than the WFI return).
++     *
++     * `wfe` is cleared for the same architectural reason. NOTE THE ASYMMETRY OF
++     * EVIDENCE: the wfi half is proven by a test that flips (mu); the wfe half is
++     * correct by the same clause of the ARM but is NOT covered by any test in this
++     * corpus. It is labelled, not claimed.
++     *
++     * `exception_index` is deliberately NOT touched here. EXCP_WFI is 0x10001, so
++     * the `&= ~EXCP_WFI` idiom used by tlib_clean_wfi_proc_state() would turn a
++     * sentinel of -1 into 0xfffefffe. The caller owns that field. */
++    env->wfi = 0;
++    env->wfe = 0;
++
+     arm_announce_stack_change();
+ }
+ #endif

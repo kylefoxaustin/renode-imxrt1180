@@ -1,0 +1,23 @@
+[23:58:14.6834] [INFO] Loaded monitor commands from: /home/kyle/.cache/renode/renode_1.17.0-portable/scripts/monitor.py
+Renode, version 1.17.0 (1.17.0+20260907gitf1dd1b4af)
+
+(monitor) include @/tmp/rt1180renode-m33wfi.resc; cpu.semihosting.semihosting_ua rt CreateFileBackend @/home/kyle/Documents/GitHub/rt1180renode/probes/m33-wfi-wa ke/out-d11d12d13d14-verified.txt true; cpu1.semihosting1.semihosting1_uart Creat eFileBackend @/home/kyle/Documents/GitHub/rt1180renode/probes/m33-wfi-wake/out-d 11d12d13d14-verified.m7.txt true; sysbus LoadELF @/home/kyle/Documents/GitHub/rt 1180renode/probes/m33-wfi-wake/m33.elf false cpu; sysbus LoadELF @/home/kyle/Doc uments/GitHub/rt1180renode/probes/m33-wfi-wake/m7.elf  false cpu1; emulation Run For "15"; quit
+[23:58:14.7138] [INFO] Including script(s): /tmp/rt1180renode-m33wfi.resc
+[23:58:17.7589] [INFO] Including script(s): /home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+[23:58:20.5761] [INFO] System bus created.
+[23:58:20.9463] [INFO] Configuring Security Attribution Unit regions to default: 8
+[23:58:20.9466] [INFO] Configuring Implementation-Defined Attribution Unit regions to default: 8
+[23:58:21.3939] [INFO] sysbus: Loading block of 464 bytes length at 0xFFE0000.
+[23:58:21.3988] [INFO] sysbus: Loading block of 4 bytes length at 0x20000000.
+[23:58:21.4065] [INFO] sysbus: Loading block of 206 bytes length at 0x303C0000.
+[23:58:21.4611] [INFO] cpu: Guessing VectorTableOffset value to be 0xFFE0000.
+[23:58:21.4698] [INFO] cpu: Setting initial values: PC = 0xFFE00AD, SP = 0x20020000.
+[23:58:21.4708] [INFO] wfi: Machine started.
+[23:58:21.4981] [INFO] blkctrl_s_aonmix: M7_CFG.WAIT cleared -- gate 2 open (INITVTOR=0x303C0000)
+[23:58:21.4986] [INFO] src: SRC.SCR.BT_RELEASE_M7 set -- gate 1 open (M7 reset released, still held by CPUWAIT)
+[23:58:21.4986] [INFO] src: BOTH GATES OPEN -- starting the Cortex-M7 at vector table 0x303C0000
+[23:58:21.5001] [INFO] src: M7 initial SP=0x0x30440000 PC=0x0x303c0008
+[23:58:21.6186] [INFO] cpu.semihosting: Program exited with reason ADP_Stopped_ApplicationExit(0x20026)
+[23:58:36.4727] [INFO] wfi: Machine paused.
+Renode is quitting
+[23:58:36.4941] [INFO] wfi: Disposed.

@@ -1,0 +1,35 @@
+# core	zephyr-path	oracle
+cm33	samples/hello_world	Hello World! mimxrt1180_evk
+cm33	samples/synchronization	thread_a: Hello World
+cm33	samples/philosophers	Demo Description
+cm33	tests/kernel/common	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/threads/thread_apis	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/timer/timer_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/sched/schedule_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mutex/mutex_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/semaphore/semaphore	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/fifo/fifo_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/queue	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/workq/work	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mem_heap/mheap_api_concept	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/interrupt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/context	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mem_slab/mslab	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/pipe/pipe_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/poll	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/condvar	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/smp	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_interrupt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_thread_swap	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/cbprintf_package	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/logging/log_api	PROJECT EXECUTION SUCCESSFUL
+cm7	samples/hello_world	Hello World! mimxrt1180_evk
+cm7	samples/synchronization	thread_a: Hello World
+cm7	samples/philosophers	Demo Description
+cm7	tests/kernel/common	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/threads/thread_apis	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/timer/timer_api	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/sched/schedule_api	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/interrupt	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/context	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/arch/arm/arm_interrupt	PROJECT EXECUTION SUCCESSFUL

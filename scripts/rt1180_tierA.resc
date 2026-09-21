@@ -1,0 +1,52 @@
+:name: MIMXRT1189-EVK (CM33) — Tier A prebuilt .bin
+:description: Stock NXP SDK PREBUILT cm33 .bin images from SDK_26_06_00_MIMXRT1180-EVK.zip
+
+using sysbus
+include @/home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
+
+mach create "rt1180"
+machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_m1.repl
+
+
+# ⭐ BLANKET TrustZone-M SECURE MIRROR.
+# The whole NS peripheral window 0x4000_0000..0x4FFF_FFFF is mirrored at
+# 0x5000_0000 in ONE statement, instead of giving each peripheral its own
+# "+0x1000_0000" registration.
+#
+# WHY: per-peripheral aliasing is structurally prone to silently omitting the
+# secure alias of any block the test corpus never touches secure-side. That is
+# not hypothetical -- it happened here: S3MU was the ONE block without its alias,
+# because every NXP SDK example runs non-secure, and only Zephyr (which runs the
+# cm33 SECURE) exposed it by polling S3MU TSR at 0x5754_0124.
+# A blanket mirror is immune by construction.
+# Architecture noted by @rt1180emulator, whose QEMU SoC does the same thing with
+# one memory_region_init_alias(0x40000000, size 0x10000000) mapped at 0x50000000.
+sysbus Redirect 0x50000000 0x40000000 0x10000000
+
+showAnalyzer lpuart1
+cpu PerformanceInMips 240
+
+# ⚠ THE LOAD BASE IS NOT CONSTANT. A flat .bin carries no load address, and the
+# SDK cm33 images do NOT all link to the base of CODE_TCM: the three
+# usb_device_dfu images link at 0x0FFF0000 (reserving the low 64 KiB of CODE_TCM
+# as the DFU update slot) while hello_world/led_blinky/sai/bubble/multicore_trigger
+# link at 0x0FFE0000. MEASURED from each image's own reset vector (file word[1]):
+#     0x0FFE047D -> base 0x0FFE0000   (5 images)
+#     0x0FFF4F91 -> base 0x0FFF0000   (3 usb images)
+# So $loadbase is DERIVED per-image as (reset_pc & 0xFFFF0000), which is exactly
+# what the QEMU oracle does (hw/arm/imxrt1180_evk.c, the !is_elf branch).
+# Hardcoding 0x0FFE0000 put the USB images' reset PC 64 KiB past the end of the
+# loaded blob -> 'Trying to execute code outside RAM or ROM at 0x10000000'.
+# That was a HARNESS error of mine, not a Renode gap.
+#
+# Tier A images are raw .bin, not ELF. They link to ITCM and carry a standard
+# ARMv8-M vector table at offset 0 (SP at +0, reset vector at +4) -- DERIVED from
+# the images themselves: SP=0x20020000 (DTCM top = 0x20000000 + 0x20000) and
+# PC=0x0FFE047D (ITCM, thumb bit set). So: load at ITCM base and point VTOR there;
+# Renode's CortexM then fetches SP/PC from the table exactly as the hardware does.
+macro reset
+"""
+    sysbus LoadBinary $bin $loadbase
+    cpu VectorTableOffset $loadbase
+"""
+runMacro $reset

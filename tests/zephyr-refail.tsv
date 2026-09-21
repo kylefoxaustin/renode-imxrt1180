@@ -1,0 +1,23 @@
+# core	zephyr-path	oracle
+cm33	tests/kernel/threads/thread_apis	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/sched/schedule_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mutex/mutex_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mem_heap/mheap_api_concept	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/interrupt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/condvar	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/smp	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_interrupt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_thread_swap	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/sched/schedule_api	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/interrupt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_hardfault_validation	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_mem_protect	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_irq_advanced_features	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/arch/arm/arm_mpu_wt	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/semaphore	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/spinlock	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mem_protect/protection	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mem_protect/mem_map	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/mutex/mutex_api	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/kernel/semaphore	PROJECT EXECUTION SUCCESSFUL
+cm7	tests/arch/arm/arm_mem_protect	PROJECT EXECUTION SUCCESSFUL

@@ -1,0 +1,55 @@
+test	elf	group	pass	fail	verdict	note
+imxrt1180-adc	adc.elf	MOTOR	1	0	PASS	-
+imxrt1180-adc-ab	adcab.elf	MOTOR	2	0	PASS	-
+imxrt1180-adc-fifo-align	fifoalign.elf	MOTOR	3	0	PASS	-
+imxrt1180-asrc	asrc.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-asrc-async	async.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-cm7boot	cm7boot.elf	DUAL	0	0	PLATFORM-CAP	HARNESS-CAPABILITY (confirmed by @rt1180emulator): their machine boots the M7 DIRECTLY from a cm7 ELF via boot-cm7 auto-detect, holding the M33 -- there is NO guest release sequence in these images at all. A deliberate harness convenience on their side, not silicon; on real silicon a cm7-only image cannot run without the M33 releasing it. Needs an auto-boot-cm7 feature or a two-gate wrapper here -- NOT a CPUWAIT defect.
+imxrt1180-cm7-mpu	mpu.elf	DUAL	0	0	PLATFORM-CAP	HARNESS-CAPABILITY (confirmed by @rt1180emulator): their machine boots the M7 DIRECTLY from a cm7 ELF via boot-cm7 auto-detect, holding the M33 -- there is NO guest release sequence in these images at all. A deliberate harness convenience on their side, not silicon; on real silicon a cm7-only image cannot run without the M33 releasing it. Needs an auto-boot-cm7 feature or a two-gate wrapper here -- NOT a CPUWAIT defect.
+imxrt1180-cm7-systick	systick.elf	DUAL	0	0	PLATFORM-CAP	HARNESS-CAPABILITY (confirmed by @rt1180emulator): their machine boots the M7 DIRECTLY from a cm7 ELF via boot-cm7 auto-detect, holding the M33 -- there is NO guest release sequence in these images at all. A deliberate harness convenience on their side, not silicon; on real silicon a cm7-only image cannot run without the M33 releasing it. Needs an auto-boot-cm7 feature or a two-gate wrapper here -- NOT a CPUWAIT defect.
+imxrt1180-cm7wait	m33.elf	DUAL	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-dmareq	dmareq.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-dualcore	m33.elf	DUAL	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-edma	dma.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-edma-swstart-order	order.elf	DUAL	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-ele	ele.elf	CM33	2	0	PASS	FIXED 2026-09-19: S3MU wrote RNG to a CPU-LOCAL address via the GLOBAL map -- see EXPERIMENT.md
+imxrt1180-ele-corestart	corestart.elf	DUAL	1	0	PASS	-
+imxrt1180-eqdc	eqdc.elf	MOTOR	1	0	PASS	-
+imxrt1180-flexcan	can.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-fslaudit	fslaudit.elf	META	-	-	OUT-OF-SCOPE	-
+imxrt1180-hello	hello.elf	CM33	0	0	NO-OUTPUT	PLATFORM: links to XIP 0x28000000; value platform maps that as a FlexSPI command window, not plain memory
+imxrt1180-lpadc-dma	adcdma.elf	MOTOR	1	0	PASS	-
+imxrt1180-lpi2c	i2c.elf	CM33	1	1	FAIL	MISSING SLAVE: LPI2C modelled and mapped (no unmapped access); no TMP105 responder on the bus
+imxrt1180-lpi2c-dma	i2cdma.elf	CM33	0	1	FAIL	MISSING SLAVE: same -- LPI2C present, bus has no TMP105 to ACK
+imxrt1180-lpit	timer.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-lpspi	spi.elf	CM33	0	1	FAIL	MISSING-MODEL: LPSPI4 @0x42560000 unmapped -- LPSPI is not implemented in this tree at all
+imxrt1180-lpspi3-dma	spidma3.elf	CM33	0	2	FAIL	MISSING-MODEL: LPSPI3 @0x42550000 unmapped -- NOT the level-vs-edge DMA bug I predicted
+imxrt1180-lpspi-dma	spidma.elf	CM33	0	2	FAIL	MISSING-MODEL: LPSPI1 @0x44360000 unmapped -- NOT the level-vs-edge DMA bug I predicted
+imxrt1180-m33-usagefault	usagefault.elf	CM33	0	0	NO-OUTPUT	PLATFORM: links to XIP 0x28000000; value platform maps that as a FlexSPI command window, not plain memory
+imxrt1180-mecc	mecc.elf	CM33	0	0	NO-OUTPUT	PLATFORM: links to XIP 0x28000000; value platform maps that as a FlexSPI command window, not plain memory
+imxrt1180-misc1	misc1.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-motor	motor.elf	MOTOR	3	0	PASS	-
+imxrt1180-motor-load	load.elf	MOTOR	0	0	PASS(runner:5 cfg)	HARNESS: parameter sweep; passes under its dedicated runner
+imxrt1180-motor-sat	sat.elf	MOTOR	0	0	PASS(runner:4 cfg)	HARNESS: parameter sweep; passes under its dedicated runner
+imxrt1180-motor-thermal	thermal.elf	MOTOR	0	1	PASS(runner)	HARNESS: parameter sweep; passes under its dedicated runner
+imxrt1180-mu	m33.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-netc-fdb	fdb.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-netc-flood	flood.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-netc-fwd	fwd.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-netc-lab3	netc-lab3-0x88B6.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-netc-portfwd	portfwd.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-netc-ptp	ptp.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-netc-rxfwd	rxfwd.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-pwm	pwm.elf	MOTOR	1	0	PASS	-
+imxrt1180-pwmadc	pwmadc.elf	MOTOR	1	0	PASS	-
+imxrt1180-pwm-cldok	pwmcldok.elf	MOTOR	1	0	PASS	-
+imxrt1180-pwm-dma	pwmdma.elf	MOTOR	1	0	PASS	-
+imxrt1180-sai	sai.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-sai-audiopll	saiapll.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-sai-dma	saidma.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-timers2	timers2.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-tmr	tmr.elf	CM33	0	0	NO-OUTPUT	needs triage: short budget vs missing platform feature
+imxrt1180-uartlink	passthrough.elf	CM33	1	0	PASS	-
+imxrt1180-usb	usb.elf	CM33	1	0	PASS	-
+imxrt1180-usdhc	usdhc.elf	CM33	0	1	FAIL	RAN AND DISAGREED -- real model gap with a golden attached
+imxrt1180-wm8962	wm8962.elf	CM33	1	0	PASS	-

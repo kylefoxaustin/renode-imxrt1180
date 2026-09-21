@@ -1,0 +1,29 @@
+# core	zephyr-path	oracle
+cm33	tests/kernel/mem_heap/k_heap_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/condvar/condvar_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/multiprocessing/smp	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/cbprintf_fp	Complete
+cm33	tests/lib/cbprintf_package	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/cmsis_nn	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/cobs	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/fdtable	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/hash_function	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/hash_map	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/heap	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/heap_align	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/heap_min	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/json	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/linear_range	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/lockfree	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/lib/mem_alloc	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/bindesc/definition	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/bindesc/reading	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/cpu_freq/cpu_freq_soc	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/cpu_freq/thermal_cap	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/crc	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/debug/assert_custom_header	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/debug/coredump	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/subsys/debug/coredump_backends	PROJECT EXECUTION SUCCESSFUL
+cm33	samples/basic/threads	Booting Zephyr OS build
+cm33	samples/kernel/condition_variables/simple	Booting Zephyr OS build
+cm33	samples/subsys/logging/logger	Booting Zephyr OS build

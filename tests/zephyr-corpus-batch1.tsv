@@ -1,0 +1,9 @@
+# core	zephyr-path	oracle
+cm33	samples/hello_world	Hello World! mimxrt1180_evk
+cm33	samples/synchronization	thread_a: Hello World
+cm33	samples/philosophers	Philosopher 0
+cm33	tests/kernel/common	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/threads/thread_apis	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/timer/timer_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/sched/schedule_api	PROJECT EXECUTION SUCCESSFUL
+cm33	tests/kernel/mutex/mutex_api	PROJECT EXECUTION SUCCESSFUL

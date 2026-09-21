@@ -1,0 +1,51 @@
+# RT1180 EQUIVALENCY CORPUS — Renode vs QEMU, head-to-head.
+# ---------------------------------------------------------------------------
+# One row per row of the QEMU model's docs/validation/corpus.tsv. Both tools run
+# the IDENTICAL image (same bytes, pinned in ~/.cache/rt1180-artifacts) on the
+# SAME box, and both are matched against the SAME EXTERNAL oracle -- the string
+# the NXP firmware itself prints, cited by SDK file:line in the QEMU corpus.
+#
+# ⭐ BOTH VERDICTS ARE MEASURED BY THIS HARNESS. The QEMU column is NOT copied
+#   from their SCORECARD.md; qemu-system-arm is invoked here, so the comparison
+#   is MEASURED-vs-MEASURED (fleet Law 1) rather than measured-vs-SOURCED.
+#
+# Columns (TAB-separated):
+#   kind    pass | banner | xfail | value | xbuild   (the QEMU manifest's kind)
+#   image   path under ~/.cache/rt1180-artifacts/sdk, or an absolute .bin path
+#   core    cm33 | cm7
+#   resc    which Renode platform script runs it
+#   qflags  extra qemu flags (-icount where the QEMU manifest requires it)
+#   oracle  the external success/banner string
+#   example the QEMU corpus row this mirrors
+kind	image	core	resc	qflags	oracle	example
+pass	A:demo_apps/hello_world/cm33/hello_world_demo_cm33.bin	cm33	tierA	-	hello world.	A demo_apps/hello_world
+banner	A:demo_apps/bubble_peripheral/cm33/bubble_peripheral_cm33.bin	cm33	tierA	-	Welcome to the BUBBLE example	A demo_apps/bubble_peripheral
+banner	A:demo_apps/sai/cm33/sai_cm33.bin	cm33	tierA	-	SAI Demo started!	A demo_apps/sai
+xfail	A:demo_apps/multicore_trigger/cm33/multicore_trigger_demo_cm33.bin	cm33	tierA_m2	-	get core1 image info sucessfully	A demo_apps/multicore_trigger
+banner	A:usb_examples/usb_device_dfu/bm/cm33/dev_hid_mouse_bm.bin	cm33	tierA	-	USB device HID mouse demo	A usb_examples/usb_device_dfu/bm
+banner	A:usb_examples/usb_device_dfu/freertos/cm33/dev_hid_mouse_bm.bin	cm33	tierA	-	USB device HID mouse demo	A usb_examples/usb_device_dfu/freertos
+banner	A:usb_examples/usb_device_dfu_lite/bm/cm33/dev_hid_mouse_bm.bin	cm33	tierA	-	USB device HID mouse demo	A usb_examples/usb_device_dfu_lite/bm
+pass	hello_world_cm33.elf	cm33	m1	-	hello world.	B demo_apps/hello_world
+pass	edma4_memory_to_memory_cm33.elf	cm33	m1	-	EDMA memory to memory example finish	B driver_examples/edma4/memory_to_memory
+pass	edma4_memory_to_memory_transfer_cm33.elf	cm33	m1	-	EDMA memory to memory transfer example finish	B driver_examples/edma4/memory_to_memory_transfer
+pass	edma4_memset_cm33.elf	cm33	m1	-	EDMA memset finish	B driver_examples/edma4/memset
+pass	edma4_channel_link_cm33.elf	cm33	m1	-	EDMA channel link example finish	B driver_examples/edma4/channel_link
+pass	edma4_ping_pong_transfer_cm33.elf	cm33	m1	-	EDMA ping pong transfer example finish	B driver_examples/edma4/ping_pong_transfer
+pass	edma4_scatter_gather_cm33.elf	cm33	m1	-	EDMA scatter gather transfer example finish	B driver_examples/edma4/scatter_gather
+pass	edma4_wrap_transfer_cm33.elf	cm33	m1	-	EDMA wrap transfer example finish	B driver_examples/edma4/wrap_transfer
+pass	edma4_interleave_transfer_cm33.elf	cm33	m1	-	EDMA interleave transfer example finish	B driver_examples/edma4/interleave_transfer
+pass	s3mu_cm33.elf	cm33	m1	-	End of Example with SUCCESS!!	B driver_examples/s3mu
+pass	flexspi_nor_polling_cm33.elf	cm33	m1	-	Program data - successfully	B driver_examples/flexspi/nor/polling_transfer
+pass	sai_edma_transfer_cm33.elf	cm33	m1	-	SAI EDMA example finished!	B driver_examples/sai/edma_transfer
+pass	asrc_m2m_polling_cm33.elf	cm33	m1	-	ASRC m2m polling example finished	B driver_examples/asrc/asrc_m2m_polling
+pass	netc_switch_cm33.elf	cm33	m1	-	Frame forwarding to port	B driver_examples/netc/switch
+xfail	cache_cm33.elf	cm33	m1	-	Cache Clean success!	B driver_examples/cache
+xfail	ele_crypto_hsm_cm33.elf	cm33	m1	-	End of Example with SUCCESS!!	B ele_crypto/ele_crypto_hsm
+pass	multicore_manager_primary_core_cm33.elf	cm33	m2	-icount shift=2	The secondary core application has been started.	B multicore_examples/multicore_manager/primary
+pass	rpmsg_lite_pingpong_primary_core_cm33.elf	cm33	rpmsg	-icount shift=2	Message: Size=4, DATA = 101	B multicore_examples/rpmsg_lite_pingpong/primary
+xbuild	-	cm33	-	-	-	B driver_examples/edma4/memory_to_memory_trigger
+xbuild	-	cm33	-	-	-	B driver_examples/wdog32
+value	A:demo_apps/led_blinky/cm33/rled_blinky_demo_cm33.bin	cm33	tierA	-	-	A demo_apps/led_blinky
+value	-	cm7	-	-icount shift=3	-	B demo_apps/mc_pmsm/pmsm_enc [builds as pmsm_enc_cm7.elf; QEMU corpus path motor_control/pmsm/... does not exist in SDK 2026.06.00. UPDATED 2026-09-19: that is no longer true -- the cm7 SDK platform (mimxrt1189_cm7_sdk.repl) and a value harness now exist, and ALL 13 of the oracle's motor/ADC value tests PASS on Renode with their unmodified binaries, INCLUDING adc-fifo-align, one of the two tests the QEMU side pins this row on. The other pin, cm7boot, cannot run here for a HARNESS-CAPABILITY reason confirmed by @rt1180emulator (their machine boot-cm7 auto-detect boots the M7 directly with no guest release sequence in the image -- a convenience, not silicon), NOT a model gap. Scored VALUE-PROVEN with that pin gap stated rather than hidden.]
+pass	mecc_single_error_cm33.elf	cm33	m1	-	MECC single error example finished successfully	B driver_examples/mecc/mecc_single_error
+pass	mecc_multi_error_cm33.elf	cm33	m1	-	MECC Multiple error example finished successfully	B driver_examples/mecc/mecc_multi_error

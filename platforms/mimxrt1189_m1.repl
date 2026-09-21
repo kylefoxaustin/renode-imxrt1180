@@ -1,0 +1,455 @@
+// MIMXRT1189 — M1 platform: the M0 CM33 platform + eDMA4. No M7.
+// Kept separate from the M2 platform so M1 does not silently depend on
+// anything dual-core.
+using "mimxrt1189_cm33.repl"
+
+// ---- eDMA4 ----
+// DMA4_BASE 0x42000000 (NS) / 0x52000000 (secure). [cmsis]
+// TCD[n] at base + 0x10000 + n * 0x8000 -- stride 0x8000, NOT the 0x1000 that
+// Renode's model defaults to. Verified against the QEMU oracle's edma_cfg[]
+// (hw/arm/imxrt1180_soc.c), which cites PERI_DMA4.h.
+//
+// Uses the PATCHED eDMA (IMXRT1180_eDMA4.cs): Renode's own model with the
+// software-START DONE flag deferred instead of set inside the MMIO write.
+edma4: DMA.IMXRT1180_eDMA @ {
+        sysbus new Bus.BusPointRegistration { address: 0x42000000 }
+    }
+    // ⚠ LABELLED DEVIATION: RT1180's eDMA4 has 64 channels; Renode's model
+    // hard-caps at 32 (MP_INT/MP_HRS are single 32-bit registers, one flag per
+    // channel; eDMA4 needs L/H pairs). The driver examples use low channel
+    // numbers. Channels 32-63 DO NOT EXIST in this platform.
+    // eDMA4 uses GROUPED interrupts: channels 2k, 2k+1, 2k+32 and 2k+33 all
+    // share NVIC IRQ 128+k (16 IRQs, 128..143 for 64 channels). Verified against
+    // the QEMU oracle (hw/arm/imxrt1180_soc.c: "eDMA4 (64 channels, grouped IRQ:
+    // channels 2k/2k+1/2k+32/2k+33 share IRQ 128+k)"). This platform declares 32
+    // channels, so only the 2k / 2k+1 half of each group is present.
+    numberOfChannels: 32
+    0 -> nvic@128
+    1 -> nvic@128
+    2 -> nvic@129
+    3 -> nvic@129
+    4 -> nvic@130
+    5 -> nvic@130
+    6 -> nvic@131
+    7 -> nvic@131
+    8 -> nvic@132
+    9 -> nvic@132
+    10 -> nvic@133
+    11 -> nvic@133
+    12 -> nvic@134
+    13 -> nvic@134
+    14 -> nvic@135
+    15 -> nvic@135
+    16 -> nvic@136
+    17 -> nvic@136
+    18 -> nvic@137
+    19 -> nvic@137
+    20 -> nvic@138
+    21 -> nvic@138
+    22 -> nvic@139
+    23 -> nvic@139
+    24 -> nvic@140
+    25 -> nvic@140
+    26 -> nvic@141
+    27 -> nvic@141
+    28 -> nvic@142
+    29 -> nvic@142
+    30 -> nvic@143
+    31 -> nvic@143
+
+edma4_channels: DMA.IMXRT1180_eDMA_Channels @ {
+        sysbus new Bus.BusPointRegistration { address: 0x42010000 }
+    }
+    dma: edma4
+    count: 32
+    channelSize: 0x8000
+
+// ---- Blocks the SDK board init needs on any rung (same as the M2 platform) ----
+// TRDC1..3: fsl_trdc reads HWCFG0 to size its loops and asserts on zero counts.
+// Bases + ncmMask from the QEMU oracle's trdc_base[] / trdc_ncm_mask[].
+trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
+    ncmMask: 0x04
+
+trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
+    ncmMask: 0x1C
+
+trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
+    ncmMask: 0x1B
+
+// DCDC: fsl_dcdc spins on REG0[STS_DC_OK] (bit 31).
+dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
+    readyOffset: 0x0
+    readyMask: 0x80000000
+
+blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000
+
+// SRC + BLK_CTRL_S_AONMIX. No M7 on this rung, so no secondaryCore is wired --
+// the two-gate release simply never completes, which is correct for a
+// single-core example. Mapped because the SDK board init reads the block.
+src: Miscellaneous.IMXRT1180_SRC @ sysbus 0x44460000
+
+blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
+    gates: src
+    isBlkCtrl: true
+
+// ---- LPI2C1..6 -----------------------------------------------------------
+// ⭐ REUSED UNCHANGED from Renode's S32K3XX model. NXP's LPI2C is the same IP
+// block on both SoCs, and the register map was VERIFIED offset-by-offset
+// against the QEMU oracle's hw/i2c/imxrt1180_lpi2c.c before reuse:
+//   VERID 0x00  PARAM 0x04  MCR 0x10  MSR 0x14  MIER 0x18  MDER 0x1C
+//   MCFGR0 0x20 MCFGR3 0x2C MDMR 0x40 MCCR0 0x48 MCCR1 0x50 MFCR 0x58
+//   MFSR 0x5C   MTDR 0x60   MRDR 0x70
+// -- identical, every one, to S32K3XX_LowPowerInterIntegratedCircuit's
+// Registers enum. Zero lines of C# written for this block.
+//
+// Bases + IRQs SOURCED from the QEMU oracle's lpi2c_cfg[] table
+// (hw/arm/imxrt1180_soc.c:717). NOTHING IS ON THESE BUSES, deliberately: the
+// EVK's sensor (FXOS8700) and codec (WM8962) are not modelled, and the QEMU
+// oracle does not model them either -- its bubble_peripheral row is BANNER for
+// exactly that reason. An unanswered address phase NAKs, which is what both
+// tools must do for the comparison to mean anything.
+lpi2c1: I2C.IMXRT1180_LPI2C @ sysbus 0x44340000
+    IRQ -> nvic@13
+    // GPIO 0 = TX request (gated by MDER.TDDE), 1 = RX request (MDER.RDDE +
+    // the RX FIFO level). Routed by SOURCE number, never by channel number.
+    0 -> dmareq3@7
+    1 -> dmareq3@8
+
+// A second TMP105, on LPI2C1. ⚠ THIS MIRRORS THE ORACLE'S TEST HARNESS, NOT A
+// CLAIM ABOUT THE EVK: their tests/imxrt1180-lpi2c-dma drives LPI2C1 @0x44340000
+// and expects a TMP105 to answer there, so their machine has one on that bus.
+// Stated rather than left to look like a board fact I verified.
+tmp105_lpi2c1: Sensors.TMP105 @ lpi2c1 0x48
+
+lpi2c2: I2C.IMXRT1180_LPI2C @ sysbus 0x44350000
+    IRQ -> nvic@14
+
+// The EVK's sensor U115, on LPI2C2 at 0x19. Address + presence SOURCED from the
+// QEMU oracle's hw/arm/imxrt1180_soc.c:736 (i2c_slave_create_simple(lpi2c[1],
+// TYPE_FXLS8974, 0x19)); the model itself is a register-for-register port of
+// their hw/sensor/fxls8974.c. Without it the bubble demo aborts at sensor init.
+fxls8974: Sensors.FXLS8974 @ lpi2c2 0x19
+
+// The EVK's audio codec, on LPI2C2 at 0x1A. Address + presence SOURCED from the
+// oracle's imxrt1180_soc.c:738. CONTROL PLANE ONLY -- the codec is the I2S slave
+// and never touches samples; see the .cs for why modelling it as an audio device
+// would be the fabrication.
+wm8962: Sound.WM8962 @ lpi2c2 0x1A
+
+lpi2c3: I2C.IMXRT1180_LPI2C @ sysbus 0x42530000
+    IRQ -> nvic@62
+
+lpi2c4: I2C.IMXRT1180_LPI2C @ sysbus 0x42540000
+    IRQ -> nvic@63
+
+// TMP105 temperature sensor, 7-bit address 0x48. Anchors (address, pointer-byte
+// protocol, MSB-first 12-bit left-justified encoding, 25.0C == 0x1900) supplied by
+// @rt1180emulator, whose QEMU model the oracle's lpi2c tests pass against.
+tmp105: Sensors.TMP105 @ lpi2c4 0x48
+
+lpi2c5: I2C.IMXRT1180_LPI2C @ sysbus 0x42D30000
+    IRQ -> nvic@152
+
+lpi2c6: I2C.IMXRT1180_LPI2C @ sysbus 0x42D40000
+    IRQ -> nvic@153
+
+// ---- USBPHY1/2 -----------------------------------------------------------
+// USB 2.0 HS PHY PLL readiness. Ported from the QEMU oracle's
+// hw/misc/imxrt1180_usbphy.c; bases SOURCED from the MIMXRT1189 CMSIS header
+// (USBPHY1_BASE 0x42CA0000, USBPHY2_BASE 0x42CB0000). The stock prebuilt
+// usb_device_dfu images spin on USBPHY1.PLL_SIC (+0xA0) waiting for PLL_LOCK --
+// MEASURED at 9555 reads of 0x42CA00A0 in a single 5 s run with nothing else
+// polling. The block is born HELD IN RESET (CTRL = SFTRST|CLKGATE); see the .cs.
+usbphy1: Miscellaneous.IMXRT1180_USBPHY @ sysbus 0x42CA0000
+
+usbphy2: Miscellaneous.IMXRT1180_USBPHY @ sysbus 0x42CB0000
+
+// ---- USB_OTG1/2 (ChipIdea USB-HS, device mode) ---------------------------
+// Ported from the QEMU oracle's hw/usb/imxrt1180_usb.c. Bases SOURCED from the
+// MIMXRT1189 CMSIS header (USB_OTG1_BASE 0x42C80000, USB_OTG2_BASE 0x42C90000);
+// IRQs 215/214 from the oracle's imxrt1180_soc.h. No USB host is attached and
+// none is fabricated -- the device completes init/run and stays un-enumerated,
+// which is the honest outcome for a headless target.
+usb_otg1: USBDeprecated.IMXRT1180_USB @ sysbus 0x42C80000
+
+usb_otg2: USBDeprecated.IMXRT1180_USB @ sysbus 0x42C90000
+
+// ---- eDMA3 (AON) ---------------------------------------------------------
+// A SECOND eDMA instance, which this platform was missing entirely. Found by
+// running driver_examples/sai/edma_transfer: once the codec assert cleared, the
+// example drove 0x44010038 / 0x4401003C -- the eDMA3 CHANNEL region, not eDMA4's.
+// Config SOURCED from the QEMU oracle's edma_cfg[] (imxrt1180_soc.c:821):
+//     { 0x44000000, 32 channels, stride 0x10000 }   eDMA3 (AON,    DMA3_BASE_NS)
+//     { 0x42000000, 64 channels, stride 0x8000  }   eDMA4 (WAKEUP, DMA4_BASE_NS)
+// eDMA3 has 32 channels, so unlike eDMA4 it fits Renode's model EXACTLY -- the
+// 32-channel hard cap (defect #3) costs nothing here. Per-channel IRQs 95+ch
+// (eDMA4's are grouped, 128 + (ch%32)/2), also from the oracle.
+edma3: DMA.IMXRT1180_eDMA @ {
+        sysbus new Bus.BusPointRegistration { address: 0x44000000 }
+    }
+    numberOfChannels: 32
+    0 -> nvic@95
+    1 -> nvic@96
+    2 -> nvic@97
+    3 -> nvic@98
+    4 -> nvic@99
+    5 -> nvic@100
+    6 -> nvic@101
+    7 -> nvic@102
+    8 -> nvic@103
+    9 -> nvic@104
+    10 -> nvic@105
+    11 -> nvic@106
+    12 -> nvic@107
+    13 -> nvic@108
+    14 -> nvic@109
+    15 -> nvic@110
+    16 -> nvic@111
+    17 -> nvic@112
+    18 -> nvic@113
+    19 -> nvic@114
+    20 -> nvic@115
+    21 -> nvic@116
+    22 -> nvic@117
+    23 -> nvic@118
+    24 -> nvic@119
+    25 -> nvic@120
+    26 -> nvic@121
+    27 -> nvic@122
+    28 -> nvic@123
+    29 -> nvic@124
+    30 -> nvic@125
+    31 -> nvic@126
+
+edma3_channels: DMA.IMXRT1180_eDMA_Channels @ {
+        sysbus new Bus.BusPointRegistration { address: 0x44010000 }
+    }
+    dma: edma3
+    count: 32
+    channelSize: 0x10000
+
+// ---- SAI1 (I2S transmit path) --------------------------------------------
+// Ported from the QEMU oracle's hw/misc/imxrt1180_sai.c. Base SOURCED from the
+// CMSIS header. The sample rate is COMPUTED from the guest's own registers via
+// the CCM clock tree (CLOCK_ROOT[65]) -- never a constant; see the .cs.
+// PARAM is PER INSTANCE (the RM's per-instance reset values): SAI1 0x00050402
+// gives a 16-word FIFO. TX DMA request is SRC 21 on eDMA3, from the oracle's
+// sai_tx_dma[] table (imxrt1180_soc.c:917).
+sai1: Sound.IMXRT1180_SAI @ sysbus 0x443B0000
+    ccm: ccm
+    dma: edma3
+    clockRoot: 65
+    dmaRequestSource: 21
+    param: 0x00050402
+    // IRQ 45, from the oracle's sai_cfg[] (imxrt1180_soc.c:868). The ASRC example
+    // drives SAI through the INTERRUPT path (SAI_TransferSendNonBlocking), not
+    // eDMA -- without this line it waits forever on isSAIFinished.
+    IRQ -> nvic@45
+
+// ---- SAI2/3/4 ------------------------------------------------------------
+// Added because the ASRC's TRUE-ASYNC ratio is (outSrcHz / inSrcHz), and those
+// sources are SAIn TX bit clocks: imxrt1180-asrc-async selects SAI1_TX for input
+// (ASRCSR AICSA=0) and SAI2_TX for output (AOCSA=2). With only SAI1 present the
+// ASRC could not resolve the output source and correctly fell back to the divider
+// ratio -- giving 1 where the true ratio is 2.
+//
+// Bases, IRQs and PARAMs all SOURCED from the oracle's sai_cfg[]/sai_param[]
+// (imxrt1180_soc.c:940) and clock roots from CLKROOT_SAI1 + i (65..68).
+// ⚠ PARAM DIFFERS PER INSTANCE and the oracle's own comment records that giving
+// all four the same value made "every instance wrong": SAI1 advertises a 16-word
+// FIFO (PARAM[11:8]=4), SAI2/3 32-word (=5), SAI4 (=5 with a different channel
+// count). A driver sizing a burst from PARAM overruns a FIFO shallower than the
+// one it was promised, so these are copied, not guessed.
+sai2: Sound.IMXRT1180_SAI @ sysbus 0x42BB0000
+    ccm: ccm
+    clockRoot: 66
+    param: 0x00050501
+    IRQ -> nvic@198
+
+sai3: Sound.IMXRT1180_SAI @ sysbus 0x42BC0000
+    ccm: ccm
+    clockRoot: 67
+    param: 0x00050501
+    IRQ -> nvic@199
+
+sai4: Sound.IMXRT1180_SAI @ sysbus 0x42BD0000
+    ccm: ccm
+    clockRoot: 68
+    param: 0x00050504
+    IRQ -> nvic@154
+
+// ---- ASRC ----------------------------------------------------------------
+// Asynchronous sample-rate converter, memory-to-memory path. Ported from the
+// oracle's hw/audio/imxrt1180_asrc.c. Base SOURCED from CMSIS (ASRC_BASE).
+// ⚠ The FIR is ALGORITHM-CLASS-FAITHFUL, NOT BIT-EXACT: NXP does not publish the
+// hardware's taps, so this is a windowed-sinc (Hann) polyphase FIR with unity DC
+// gain -- the same class the oracle implements. Converted sample VALUES will
+// differ from silicon in the low bits. See the .cs header.
+asrc: Sound.IMXRT1180_ASRC @ sysbus 0x429A0000
+    0 -> nvic@235
+    SAI1: sai1
+    SAI2: sai2
+    SAI3: sai3
+    SAI4: sai4
+
+
+// ---- NETC EMDIO ----------------------------------------------------------
+// ⚠ THE MDIO MANAGEMENT INTERFACE ONLY -- THIS IS NOT A NETC MODEL. No station
+// interface, no BD rings, no MSI-X, no switch, no FDB/VLAN, no frame forwarding.
+// driver_examples/netc/switch needs all of that and does NOT pass with this.
+// Added because the row's FIRST wall was PHY init (MEASURED: 14001 accesses to
+// 0x60BA1C00/04/08, console "PHY Init failed!"), so clearing it turns the
+// remaining NETC cost from an estimate into a measurement.
+// Base = NETC EMDIO block at 0x60BA0000 (oracle: EMDIO_OFF 0xBA0000 within the
+// NETC aperture, struct offset 0x1C00).
+// ⚠ BRING-UP SCOPE ONLY -- THIS PLATFORM HAS NO ETHERNET. The NETC aperture is
+// register-backed with the self-clearing/capability bits the SDK bring-up path
+// polls: no station interface, no BD rings, no MSI-X, no switch, no FDB/VLAN, no
+// frame forwarding. driver_examples/netc/switch does NOT pass with this and the
+// row stays red. Base 0x60000000 = NETC_F0_PCI_HDR_TYPE0_BASE [cmsis], size
+// 0x00C20000 from the oracle's IMXRT1180_NETC_SIZE.
+netc: Network.IMXRT1180_NETC @ sysbus 0x60000000
+
+
+// ---- MSGINTR1..6 -- message-signalled interrupt routers -------------------
+// An MMIO write to MSIIR becomes an NVIC interrupt. NETC's MSI-X targets
+// MSGINTR1 (measured: MSI-X entry addr=0x428A0000), so without these the
+// network completion interrupts are written into a hole. Bases 0x428A0000 +
+// i*0x10000 and IRQs 218..223, both from the oracle's imxrt1180_soc.c:1293.
+msgintr1: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428A0000
+    IRQ -> nvic@218
+
+msgintr2: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428B0000
+    IRQ -> nvic@219
+
+msgintr3: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428C0000
+    IRQ -> nvic@220
+
+msgintr4: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428D0000
+    IRQ -> nvic@221
+
+msgintr5: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428E0000
+    IRQ -> nvic@222
+
+msgintr6: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428F0000
+    IRQ -> nvic@223
+
+
+// ---- LPSPI1 / LPSPI3 / LPSPI4 --------------------------------------------
+// ⚠ THE THREE LPSPI TESTS USE THREE DIFFERENT INSTANCES (@rt1180emulator), and the
+// PIO one is the instance my notes would have missed entirely:
+//   lpspi      (PIO, JEDEC ID) -> LPSPI4 @ 0x42560000
+//   lpspi-dma                  -> LPSPI1 @ 0x44360000  (eDMA3, TX=11 RX=12)
+//   lpspi3-dma                 -> LPSPI3 @ 0x42550000  (eDMA4, TX=12 RX=13)
+//
+// ⭐⭐ eDMA3 AND eDMA4 HAVE SEPARATE SOURCE-NUMBER SPACES. The number 12 means
+// LPSPI1-RX on eDMA3 and LPSPI3-TX on eDMA4. Never share a source table between the
+// two controllers -- that is the wrong-instance burn one level down, in the
+// CONTROLLER's namespace rather than the peripheral's.
+//
+// Own model, not Renode's SPI.IMXRT_LPSPI: see peripherals/IMXRT1180_LPSPI.cs --
+// the stock model ignores TCR[CONT] and drops chip-select between frames, so any
+// multi-frame transaction (every JEDEC ID read) fails.
+lpspi1: SPI.IMXRT1180_LPSPI @ sysbus 0x44360000
+    0 -> dmareq3@11
+    1 -> dmareq3@12
+
+lpspi3: SPI.IMXRT1180_LPSPI @ sysbus 0x42550000
+    0 -> dmareq4@12
+    1 -> dmareq4@13
+
+lpspi4: SPI.IMXRT1180_LPSPI @ sysbus 0x42560000
+
+// Each instance carries its own flash: the two DMA tests do the SAME JEDEC read as
+// the PIO test, with the CPU never touching TDR/RDR.
+lpspi1_flash_memory: Memory.MappedMemory
+    size: 0x400000
+
+lpspi1_flash: SPI.GenericSpiFlash @ lpspi1 0
+    underlyingMemory: lpspi1_flash_memory
+    manufacturerId: 0x1f
+    memoryType: 0x47
+    extendedDeviceId: 0x00
+    capacityCode: 0x01
+
+lpspi3_flash_memory: Memory.MappedMemory
+    size: 0x400000
+
+lpspi3_flash: SPI.GenericSpiFlash @ lpspi3 0
+    underlyingMemory: lpspi3_flash_memory
+    manufacturerId: 0x1f
+    memoryType: 0x47
+    extendedDeviceId: 0x00
+    capacityCode: 0x01
+
+lpspi4_flash_memory: Memory.MappedMemory
+    size: 0x400000
+
+// at25df321a JEDEC 0x1f4701, SOURCED from the oracle's m25p80.c.
+lpspi4_flash: SPI.GenericSpiFlash @ lpspi4 0
+    underlyingMemory: lpspi4_flash_memory
+    manufacturerId: 0x1f
+    memoryType: 0x47
+    extendedDeviceId: 0x00
+    capacityCode: 0x01
+
+// eDMA4's request router -- a SECOND router, because the source spaces are separate.
+dmareq4: Miscellaneous.IMXRT1180_DMARequestRouter @ none
+    DMA: edma4
+
+// ---- eDMA3 request router + LPI2C1 DMA request lines ----------------------
+// ⭐ THE INSTANCE MATTERS AND I HAD THE WRONG ONE IN MIND. imxrt1180-lpi2c-dma uses
+// LPI2C1 @ 0x44340000, NOT the LPI2C4 the PIO lpi2c test uses. LPI2C1 sits in the
+// 0x4434xxxx AON window next to eDMA3, which is WHY it is an eDMA3 request source;
+// LPI2C3/4 are eDMA4 sources. Correction and source numbers from @rt1180emulator,
+// table-backed (kDma3RequestMuxLPI2C1Tx/Rx): LPI2C1 Tx = 7, Rx = 8.
+dmareq3: Miscellaneous.IMXRT1180_DMARequestRouter @ none
+    DMA: edma3
+
+// ---- Timers: LPIT1 / TMR1 / GPT1 / TPM1 / LPTMR1 --------------------------
+// Bases and IRQs from @rt1180emulator's per-block anchors. Each of these blocks
+// was previously ABSENT, and the tests that need them did not fail -- they HUNG,
+// spinning on a status bit nothing ever set, which the sweep recorded as NO-OUTPUT.
+//
+// Three traps are modelled deliberately and are worth naming at the registration
+// site, because each is the kind of thing a reasonable implementation gets wrong:
+//   LPIT   CVAL must really DECREMENT -- the test reads the counter back, so a
+//          flag-only model passes the IRQ check and fails the read.
+//   TMR    SCTRL.TCF is cleared by WRITING 0, not W1C. The opposite of convention.
+//   LPTMR  CNR requires a preceding WRITE to latch; the data is irrelevant, the
+//          write IS the latch. Serving it live would be more helpful than silicon.
+lpit1: Timers.IMXRT1180_LPIT @ sysbus 0x442F0000
+    0 -> nvic@15
+
+tmr1: Timers.IMXRT1180_QTMR @ sysbus 0x42690000
+    0 -> nvic@0
+
+gpt1: Timers.IMXRT1180_GPT @ sysbus 0x446C0000
+    0 -> nvic@209
+
+tpm1: Timers.IMXRT1180_TPM @ sysbus 0x44310000
+    0 -> nvic@36
+
+lptmr1: Timers.IMXRT1180_LPTMR @ sysbus 0x44300000
+    0 -> nvic@18
+
+// ---- SEMA42 / VREF / CMP1 (imxrt1180-misc1: three blocks, one row) ---------
+sema42_1: Miscellaneous.IMXRT1180_SEMA42 @ sysbus 0x44260000
+
+vref1: Miscellaneous.IMXRT1180_VREF @ sysbus 0x42E30000
+
+cmp1: Miscellaneous.IMXRT1180_CMP @ sysbus 0x42DC0000
+
+// ---- FlexCAN1 + uSDHC1/2 --------------------------------------------------
+// FlexCAN1 base/IRQ and the uSDHC bases from the oracle's SoC wiring.
+// ⚠ The uSDHC caps value is SOURCED from their model and carries THEIR flag:
+// best-effort for this revision, NOT silicon-exact. See the .cs header.
+flexcan1: CAN.IMXRT1180_FlexCAN @ sysbus 0x443A0000
+    0 -> nvic@8
+
+// No IRQ lines: this model exposes no interrupt output, and a dangling GPIO
+// connection is worse than an absent one. IRQs 86/87 are recorded here for when
+// the block grows a completion interrupt.
+usdhc1: SD.IMXRT1180_USDHC @ sysbus 0x42850000
+
+usdhc2: SD.IMXRT1180_USDHC @ sysbus 0x42860000

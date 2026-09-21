@@ -1,0 +1,16 @@
+// CM33 value platform + ONE NETC wire on the fleet's SHARED multicast segment.
+//
+// ⚠ MULTICAST HERE IS CORRECT, AND WOULD BE A BUG IN THE FLOOD TESTS. The fleet's
+// 3-node lab IS a shared segment and its peer (wire-check.py) is a plain multicast
+// socket; a switched-fabric flood test on the same backend would re-ingest its own
+// flood and storm. Backend choice is per-test, never global.
+using "mimxrt1189_cm33_value.repl"
+
+netc_port0: Network.IMXRT1180_NETC_Port @ sysbus 0x71001000
+    portIndex: 0
+    Switch: netc
+
+labwire: Network.UdpWire @ sysbus 0x71011000
+    listenPort: 31337
+    remotePort: 31337
+    multicastGroup: "230.0.0.9"

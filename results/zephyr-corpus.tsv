@@ -1,0 +1,86 @@
+# core	sample	build	run	oracle	sha256	console	note
+cm7	samples/hello_world	OK	PASS	Hello World! mimxrt1180_evk	0e6c9707cfb6c8db283bb9b744f041f6f72ee335ab6e9fbaae91a0258e06de1b	console/cm7-samples-hello_world.txt	-
+cm7	samples/synchronization	OK	PASS	thread_a: Hello World	1077a9f3360dc612d47dc6e2376f394727ed4581779cee0ed47a2a6700b38a09	console/cm7-samples-synchronization.txt	-
+cm7	samples/philosophers	OK	PASS	Demo Description	e67eeaa15a905053a25ff6a20d394767be38a447372d15852f8b0022873a8c58	console/cm7-samples-philosophers.txt	-
+cm7	tests/kernel/common	OK	PASS	PROJECT EXECUTION SUCCESSFUL	4da6b924600cc70c6e7389802427369b992d2e07278077745172d3a21b88a3cd	console/cm7-tests-kernel-common.txt	-
+cm7	tests/kernel/threads/thread_apis	OK	PASS	PROJECT EXECUTION SUCCESSFUL	0c8054e1389fc44cf1b0d0bf507e1706164a5bb76cd868ce016df5433d720166	console/cm7-tests-kernel-threads-thread_apis.txt	-
+cm7	tests/kernel/timer/timer_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	04aad4dc60598ae7b83508f99ceebae9bae7201dacfdd448c5d57de4a75a8eb5	console/cm7-tests-kernel-timer-timer_api.txt	-
+cm7	tests/kernel/context	OK	PASS	PROJECT EXECUTION SUCCESSFUL	77ca6109d5209ef68b2b232980fe8d87d0c41e967158e0bf685a6fa205b72af2	console/cm7-tests-kernel-context.txt	-
+cm7	tests/arch/arm/arm_interrupt	OK	PASS	PROJECT EXECUTION SUCCESSFUL	b0d697dca14603c856ee5cbaf81024b491df9dd574181def49843797b854c301	console/cm7-tests-arch-arm-arm_interrupt.txt	-
+cm7	tests/kernel/fifo/fifo_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	ebf1a5f23c7cc2e96a043694afbdb734ba958c09b53f56eceae5d947411a116a	console/cm7-tests-kernel-fifo-fifo_api.txt	-
+cm7	tests/kernel/poll	OK	PASS	PROJECT EXECUTION SUCCESSFUL	ba4b405d561a38eebdc296616ffc3e37067420a6acb9027b4aa3e0c35f252306	console/cm7-tests-kernel-poll.txt	-
+cm7	tests/kernel/workq/work	OK	PASS	PROJECT EXECUTION SUCCESSFUL	ef252c3103748db744fbe3df6ddd8bd8dc9bfaa61e408621d461b19690a8a3cb	console/cm7-tests-kernel-workq-work.txt	-
+cm7	tests/arch/arm/arm_hardfault_validation	OK	PASS	PROJECT EXECUTION SUCCESSFUL	6e4da7caf9e0dc786d2217576aad7533d9e1f4d672f6a36b6673e92cddaa751b	console/cm7-tests-arch-arm-arm_hardfault_validation.txt	-
+cm7	tests/kernel/sched/schedule_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	1812ee38697815a02f91a5d690622c52a0419d6baa8a96d79e957ecbbecb7d05	console/cm7-tests-kernel-sched-schedule_api.txt	-
+cm7	tests/kernel/interrupt	FAIL	-	PROJECT EXECUTION SUCCESSFUL	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm7-tests-kernel-interrupt.build.log
+cm7	tests/kernel/mutex/mutex_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	893a26f71ed7e297aa8187c6a0a728d150d6b98aaa87329c6a646c7a12f60923	console/cm7-tests-kernel-mutex-mutex_api.txt	-
+cm7	tests/kernel/semaphore	FAIL	-	PROJECT EXECUTION SUCCESSFUL	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm7-tests-kernel-semaphore.build.log
+cm7	tests/arch/arm/arm_mem_protect	FAIL	-	PROJECT EXECUTION SUCCESSFUL	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm7-tests-arch-arm-arm_mem_protect.build.log
+cm33	tests/lib/lockfree	OK	PASS	PROJECT EXECUTION SUCCESSFUL	b41b98b96152c852b67f8a2973bfff4b2610918406bf2962c875abc5bfa0845e	console/cm33-tests-lib-lockfree.txt	-
+cm33	samples/hello_world	OK	PASS	Hello World! mimxrt1180_evk	1cb29be44cca977219b89ad8ee4c84923c3341ac28d7a252e174e858c0888d96	console/cm33-samples-hello_world.txt	-
+cm33	tests/lib/mem_alloc	OK	PASS	PROJECT EXECUTION SUCCESSFUL	4a585b0cef6539f8101546baa4f10cebea57d03e0112abddbd345fee4eadf577	console/cm33-tests-lib-mem_alloc.txt	-
+cm33	tests/subsys/bindesc/definition	OK	PASS	PROJECT EXECUTION SUCCESSFUL	2cffe1f86a0878b15c3d79711cce423db603558015a8c415f5563e8452bf43e2	console/cm33-tests-subsys-bindesc-definition.txt	-
+cm33	tests/subsys/bindesc/reading	FAIL	-	PROJECT EXECUTION SUCCESSFUL	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm33-tests-subsys-bindesc-reading.build.log
+cm33	tests/subsys/cpu_freq/cpu_freq_soc	FAIL	-	PROJECT EXECUTION SUCCESSFUL	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm33-tests-subsys-cpu_freq-cpu_freq_soc.build.log
+cm33	samples/synchronization	OK	PASS	thread_a: Hello World	70a299192ab8dbf03a19cedfb09aa92bce8bae4ed2d91ced8daa934e256c4bb7	console/cm33-samples-synchronization.txt	-
+cm33	tests/subsys/cpu_freq/thermal_cap	OK	PASS	PROJECT EXECUTION SUCCESSFUL	e764f19d654bf60d35f919d42a2189538a65ae46493ebe3c0cb5cd1c7c1edad4	console/cm33-tests-subsys-cpu_freq-thermal_cap.txt	-
+cm33	samples/philosophers	OK	PASS	Demo Description	163f72e88f57ce84d52eb8de8d7ccc505d0c1c46841de45efaef62b13ba41a0f	console/cm33-samples-philosophers.txt	-
+cm33	tests/subsys/crc	OK	PASS	PROJECT EXECUTION SUCCESSFUL	84720364b076433e971ee54e3b6be340e81be78582f3798ca6489575d65f9c4c	console/cm33-tests-subsys-crc.txt	-
+cm33	tests/lib/cbprintf_package	OK	PASS	PROJECT EXECUTION SUCCESSFUL	92b14d9ec22e4e395b27b0c6dcdf0889f09487e5868d59aa20a96181aea47367	console/cm33-tests-lib-cbprintf_package.txt	-
+cm33	tests/subsys/debug/assert_custom_header	OK	PASS	PROJECT EXECUTION SUCCESSFUL	cbf2d5c391eb1b5ff3547ff37feedd27df8f39b43e7f3cb877db5bb7ead04692	console/cm33-tests-subsys-debug-assert_custom_header.txt	-
+cm33	tests/subsys/logging/log_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	07084a38ab88b4c607a1215baf0fd67b02ffb5a099babae57eab46daa5cd5d36	console/cm33-tests-subsys-logging-log_api.txt	-
+cm33	tests/subsys/debug/coredump	OK	FAIL	PROJECT EXECUTION SUCCESSFUL	a568c244b316fbb528ee0df11a3be799089db37d8cb18b315711290ef63399ca	console/cm33-tests-subsys-debug-coredump.txt	k_sys_fatal_error_handler is expected; reason = 36; halting 
+cm33	tests/kernel/common	OK	PASS	PROJECT EXECUTION SUCCESSFUL	9426dff7855e554081a8a55c800fed30f1d46a3d673f64aef4a297378815c550	console/cm33-tests-kernel-common.txt	-
+cm33	tests/subsys/debug/coredump_backends	OK	PASS	PROJECT EXECUTION SUCCESSFUL	e9b82517fb5138f1f38109eea4e4134bbde1127496427d34e66cbd738d51ba4d	console/cm33-tests-subsys-debug-coredump_backends.txt	-
+cm33	samples/basic/threads	FAIL	-	Booting Zephyr OS build	-	-	build failed; see /home/kyle/.cache/rt1180-zephyr-builds/cm33-samples-basic-threads.build.log
+cm33	tests/kernel/timer/timer_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	64877ec5bcacecb4d3e39862a302759f53359a76cde06f93d22077956f1897ba	console/cm33-tests-kernel-timer-timer_api.txt	-
+cm33	samples/kernel/condition_variables/simple	OK	PASS	Booting Zephyr OS build	00c58ab0121cdb130001669f21acfa74c0c6a1859701856fe89e6e546a722012	console/cm33-samples-kernel-condition_variables-simple.txt	-
+cm33	tests/kernel/semaphore/semaphore	OK	PASS	PROJECT EXECUTION SUCCESSFUL	621cbe11534806ed5307c23f8d698ff26cdef4f544d70732e5070a941acd0932	console/cm33-tests-kernel-semaphore-semaphore.txt	-
+cm33	samples/subsys/logging/logger	OK	PASS	Booting Zephyr OS build	8c4609237a456ddd77cc7605d94c327232dd06db787d604d21be7bece6003bb0	console/cm33-samples-subsys-logging-logger.txt	-
+cm33	tests/kernel/fifo/fifo_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	7889dfacffd9762e21441b0d4c50d5ef9dd702e646421a44d2d572b21c414b9a	console/cm33-tests-kernel-fifo-fifo_api.txt	-
+cm33	tests/kernel/queue	OK	PASS	PROJECT EXECUTION SUCCESSFUL	19bc870f4526124c7a6d864eecb4191d5d578d32a19790d8db76dddaab124f28	console/cm33-tests-kernel-queue.txt	-
+cm33	tests/kernel/workq/work	OK	PASS	PROJECT EXECUTION SUCCESSFUL	8ee44897ed5e939f3d4580d2da1d4276e77200eb0cc984e1e9395cc280ab5f70	console/cm33-tests-kernel-workq-work.txt	-
+cm33	tests/kernel/context	OK	PASS	PROJECT EXECUTION SUCCESSFUL	555351a6bb69100c033fb654ce557caf19dfad4e4f7393608845ab47eaa46710	console/cm33-tests-kernel-context.txt	-
+cm33	tests/kernel/mem_slab/mslab	OK	PASS	PROJECT EXECUTION SUCCESSFUL	7234d544faa8e371d467a9823f9908b4040ee665e6829807500bab15363de5d3	console/cm33-tests-kernel-mem_slab-mslab.txt	-
+cm33	tests/kernel/pipe/pipe_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	3c71f2d1fc55656e496764882770fc1375a895ec2da38ab85db2602a604995b2	console/cm33-tests-kernel-pipe-pipe_api.txt	-
+cm33	tests/kernel/poll	OK	PASS	PROJECT EXECUTION SUCCESSFUL	2d5ee47085dc91daefd611c3e41d755765ef7733c9a1f294239186bae43c77d1	console/cm33-tests-kernel-poll.txt	-
+cm33	tests/arch/arm/arm_irq_vector_table	OK	PASS	PROJECT EXECUTION SUCCESSFUL	d12c9486e6727f2a99d6e47562f9feceef93ed089713953db9146779eb5ff14c	console/cm33-tests-arch-arm-arm_irq_vector_table.txt	-
+cm33	tests/arch/arm/arm_custom_interrupt	OK	PASS	PROJECT EXECUTION SUCCESSFUL	bfe378dd2125413d899f8de7b27270f49b2a8f1271b0e08fab7cffb3740ffa91	console/cm33-tests-arch-arm-arm_custom_interrupt.txt	-
+cm33	tests/arch/arm/arm_runtime_nmi	OK	PASS	PROJECT EXECUTION SUCCESSFUL	5fd4034cf0ab58c4eb75d4659a18bbe6bee75b93810f05251463c414b4c00705	console/cm33-tests-arch-arm-arm_runtime_nmi.txt	-
+cm33	tests/kernel/cache	OK	PASS	PROJECT EXECUTION SUCCESSFUL	10e7c134571b3f33e0ba846bf095a720e1e9e1c4e580911b98eaa2425e575c0c	console/cm33-tests-kernel-cache.txt	-
+cm33	tests/kernel/cleanup	OK	PASS	PROJECT EXECUTION SUCCESSFUL	a0f902727557e2e3444e135eda1455dc7906f3c7767e01d7dbb5313e31903009	console/cm33-tests-kernel-cleanup.txt	-
+cm33	tests/kernel/device	OK	PASS	PROJECT EXECUTION SUCCESSFUL	ec27f94f3f7cbb99f967308cd3d4878199344aa4235c12cb472d49a65dd8d8b8	console/cm33-tests-kernel-device.txt	-
+cm33	tests/kernel/early_sleep	OK	PASS	PROJECT EXECUTION SUCCESSFUL	893fda8ea7786d94cd421ccb6894ccdb0605fa4cc82563b285514ddeeb8599a4	console/cm33-tests-kernel-early_sleep.txt	-
+cm33	tests/kernel/condvar/condvar_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	56ea397ca6cc0677e6e66af48386228fc20b38bb34edaa1b10178386e18972fb	console/cm33-tests-kernel-condvar-condvar_api.txt	-
+cm33	tests/kernel/events/event_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	28e2bbcd72fe9d5ce9ca70cc3e448a3d80d0992f9c8c91e26ffc58380fba8fe9	console/cm33-tests-kernel-events-event_api.txt	-
+cm33	tests/kernel/fifo/fifo_timeout	OK	PASS	PROJECT EXECUTION SUCCESSFUL	0b8bddb89de87ef3cf80a4e50ae0fcaae9bd30179bb80d5de2e1d0c07e9084da	console/cm33-tests-kernel-fifo-fifo_timeout.txt	-
+cm33	tests/kernel/lifo/lifo_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	f92a8583b69f70cfbd36373c88e4e734d1ae563df09fbcacbefe937603069bdc	console/cm33-tests-kernel-lifo-lifo_api.txt	-
+cm33	tests/kernel/mbox/mbox_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	9d85b81199f0b44bb024a1e907192a72efe936885b05711e868acb2f99117c5d	console/cm33-tests-kernel-mbox-mbox_api.txt	-
+cm33	tests/kernel/mem_heap/k_heap_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	5cf7c586dcdac209f7cb52378b980686e7c37cba658cea27783eac1b34e7528c	console/cm33-tests-kernel-mem_heap-k_heap_api.txt	-
+cm33	tests/kernel/mem_slab/mslab_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	4094abe2e95a95f9bf625c41f5c4737c1e1ab19adacb4f5821b7ada0273cc001	console/cm33-tests-kernel-mem_slab-mslab_api.txt	-
+cm33	tests/kernel/msgq/msgq_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	2ba501402ad90d5a916445b93a69dc2e12b6d72222ee21f54b4e90b2904c3a13	console/cm33-tests-kernel-msgq-msgq_api.txt	-
+cm33	tests/kernel/sleep	OK	PASS	PROJECT EXECUTION SUCCESSFUL	a85650d923b768842bb357cfc38d6a1c7f4acc8a999b3233313b61de5c268b15	console/cm33-tests-kernel-sleep.txt	-
+cm33	tests/kernel/threads/thread_stack	OK	PASS	PROJECT EXECUTION SUCCESSFUL	b1cb941a9958c62d5b946cfeec94277d8376725bd15f91d47552fed36cb32f4f	console/cm33-tests-kernel-threads-thread_stack.txt	-
+cm33	tests/kernel/timer/timer_monotonic	OK	PASS	PROJECT EXECUTION SUCCESSFUL	f09888c278b6430726253efbd748cca937295961f7029e37e02799b8b1309a31	console/cm33-tests-kernel-timer-timer_monotonic.txt	-
+cm33	tests/kernel/mutex/mutex_error_case	OK	PASS	PROJECT EXECUTION SUCCESSFUL	a74667fd246ead4fdd5228e0564a1e267a7da8e2254c410569d0a80d82f1779a	console/cm33-tests-kernel-mutex-mutex_error_case.txt	-
+cm33	tests/kernel/mem_protect/stackprot	OK	PASS	PROJECT EXECUTION SUCCESSFUL	b7f83d1a138c6d303696da2f5d2f100b6b974ca1b6a59adef1880e24444888d9	console/cm33-tests-kernel-mem_protect-stackprot.txt	-
+cm33	tests/kernel/threads/thread_apis	OK	PASS	PROJECT EXECUTION SUCCESSFUL	690186e1b5de159d2437c1fd7f5ffe7d07243668e6695b73c7dd93e589ab2f47	console/cm33-tests-kernel-threads-thread_apis.txt	-
+cm33	tests/kernel/sched/schedule_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	556f96cd581813ca08a98b8a220bd88dba285091845a7c4958dcd068337c26b3	console/cm33-tests-kernel-sched-schedule_api.txt	-
+cm33	tests/kernel/mutex/mutex_api	OK	PASS	PROJECT EXECUTION SUCCESSFUL	5af2b0c860876a4d69818c733dac2cf5cd91941ccc121c55f5fd32381f7c46da	console/cm33-tests-kernel-mutex-mutex_api.txt	-
+cm33	tests/arch/arm/arm_interrupt	OK	FAIL	PROJECT EXECUTION SUCCESSFUL	0d3a81fcc42417f0518033f4e096ca303b6d7b4d7fe50d5ce946943019cc2ca4	console/cm33-tests-arch-arm-arm_interrupt.txt	Wrong crash type got 16384 expected 3
+cm33	tests/arch/arm/arm_thread_swap	OK	FAIL	PROJECT EXECUTION SUCCESSFUL	2378465d1d670cd6c211895d0404e07d57426ebce1934d3e3e9ddfc2e1672b0d	console/cm33-tests-arch-arm-arm_thread_swap.txt	E: Halting system
+cm33	tests/arch/arm/arm_hardfault_validation	OK	PASS	PROJECT EXECUTION SUCCESSFUL	fa22fe851af42798fd5cbe87c8278e7731b7a9d3f6f2659bd92984d7adfb86a4	console/cm33-tests-arch-arm-arm_hardfault_validation.txt	-
+cm33	tests/arch/arm/arm_irq_advanced_features	OK	PASS	PROJECT EXECUTION SUCCESSFUL	69e7d3e4dcd0ef931798a4ccadf3ecc3a627dd174a544057841e936c60d339df	console/cm33-tests-arch-arm-arm_irq_advanced_features.txt	-
+cm33	tests/arch/arm/arm_mpu_wt	OK	FAIL	PROJECT EXECUTION SUCCESSFUL	b127841a1b11b3ab626ec096807a32f2b1cd19cba5a8725efa27fdf53354e0e5	console/cm33-tests-arch-arm-arm_mpu_wt.txt	PROJECT EXECUTION FAILED
+cm33	tests/kernel/mem_protect/protection	OK	PASS	PROJECT EXECUTION SUCCESSFUL	5526920966e66c9f422bd519944bb731b350cb829df904d18a3cf161bc97911e	console/cm33-tests-kernel-mem_protect-protection.txt	-
+cm33	tests/lib/cmsis_nn	OK	PASS	PROJECT EXECUTION SUCCESSFUL	f3f51685e41caac1d2722f549430ebb8bec84b34c6dfc2b867b47b03c387896b	console/cm33-tests-lib-cmsis_nn.txt	-
+cm33	tests/lib/cobs	OK	PASS	PROJECT EXECUTION SUCCESSFUL	5279b74fb08713bc19a0de46492bc5a847de47a8de0b232bd4bea7270c64a373	console/cm33-tests-lib-cobs.txt	-
+cm33	tests/lib/fdtable	OK	PASS	PROJECT EXECUTION SUCCESSFUL	7780bdec5343ace7bb4868b1c3181b59ad0c8b8975dcb5a97683c0fb3acc0295	console/cm33-tests-lib-fdtable.txt	-
+cm33	tests/lib/hash_function	OK	PASS	PROJECT EXECUTION SUCCESSFUL	16aca25bd5cda147f5849d88d4c2281770d479b454f95f6b02db45c8bed8d256	console/cm33-tests-lib-hash_function.txt	-
+cm33	tests/lib/hash_map	OK	PASS	PROJECT EXECUTION SUCCESSFUL	c781957be8673bee5b1ab0bc5f48cf17644a854592b7c7ea4551df629a9cc99f	console/cm33-tests-lib-hash_map.txt	-
+cm33	tests/lib/heap	OK	PASS	PROJECT EXECUTION SUCCESSFUL	122801cd688b565fbfa92188da6fc321e037cbb62c9abeaddea48f18f6058409	console/cm33-tests-lib-heap.txt	-
+cm33	tests/lib/heap_align	OK	PASS	PROJECT EXECUTION SUCCESSFUL	66e5dd776b00d194f741559a0497f4c6cc82f7b6958a7d2d646507d0109c8c64	console/cm33-tests-lib-heap_align.txt	-
+cm33	tests/lib/heap_min	OK	PASS	PROJECT EXECUTION SUCCESSFUL	fb6e3abb9524fdaf1d773e646d93ec2054715f364fbfd33e651ddadf9a4e0976	console/cm33-tests-lib-heap_min.txt	-
+cm33	tests/lib/json	OK	PASS	PROJECT EXECUTION SUCCESSFUL	b23a65db58e28ccafdbde8291e63cedf0f726d9bfc08c6861474bcfba30812c6	console/cm33-tests-lib-json.txt	-
+cm33	tests/lib/linear_range	OK	PASS	PROJECT EXECUTION SUCCESSFUL	6c67aae3b557b17ac3c32d419022e784cc6108c985bfcb9ba03f2f1b1f22e721	console/cm33-tests-lib-linear_range.txt	-
+cm33	tests/lib/cbprintf_fp	OK	PASS	Complete	045b7bb8ae611e6511c2d905f2c463ef03668fab303bf6f0181361daf17a9c29	console/cm33-tests-lib-cbprintf_fp.txt	-

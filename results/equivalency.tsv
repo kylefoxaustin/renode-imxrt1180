@@ -1,0 +1,32 @@
+kind	example	core	qemu	renode	agree	oracle
+pass	A demo_apps/hello_world	cm33	PASS	PASS	YES	hello world.
+banner	A demo_apps/bubble_peripheral	cm33	BANNER	BANNER	YES	Welcome to the BUBBLE example
+banner	A demo_apps/sai	cm33	BANNER	BANNER	YES	SAI Demo started!
+xfail	A demo_apps/multicore_trigger	cm33	XFAIL	XFAIL	YES	get core1 image info sucessfully
+banner	A usb_examples/usb_device_dfu/bm	cm33	BANNER	BANNER	YES	USB device HID mouse demo
+banner	A usb_examples/usb_device_dfu/freertos	cm33	BANNER	BANNER	YES	USB device HID mouse demo
+banner	A usb_examples/usb_device_dfu_lite/bm	cm33	BANNER	BANNER	YES	USB device HID mouse demo
+pass	B demo_apps/hello_world	cm33	PASS	PASS	YES	hello world.
+pass	B driver_examples/edma4/memory_to_memory	cm33	PASS	PASS	YES	EDMA memory to memory example finish
+pass	B driver_examples/edma4/memory_to_memory_transfer	cm33	PASS	PASS	YES	EDMA memory to memory transfer example finish
+pass	B driver_examples/edma4/memset	cm33	PASS	PASS	YES	EDMA memset finish
+pass	B driver_examples/edma4/channel_link	cm33	PASS	PASS	YES	EDMA channel link example finish
+pass	B driver_examples/edma4/ping_pong_transfer	cm33	PASS	PASS	YES	EDMA ping pong transfer example finish
+pass	B driver_examples/edma4/scatter_gather	cm33	PASS	PASS	YES	EDMA scatter gather transfer example finish
+pass	B driver_examples/edma4/wrap_transfer	cm33	PASS	PASS	YES	EDMA wrap transfer example finish
+pass	B driver_examples/edma4/interleave_transfer	cm33	PASS	PASS	YES	EDMA interleave transfer example finish
+pass	B driver_examples/s3mu	cm33	PASS	PASS	YES	End of Example with SUCCESS!!
+pass	B driver_examples/flexspi/nor/polling_transfer	cm33	PASS	PASS	YES	Program data - successfully
+pass	B driver_examples/sai/edma_transfer	cm33	PASS	PASS	YES	SAI EDMA example finished!
+pass	B driver_examples/asrc/asrc_m2m_polling	cm33	PASS	PASS	YES	ASRC m2m polling example finished
+pass	B driver_examples/netc/switch	cm33	PASS	PASS	YES	Frame forwarding to port
+xfail	B driver_examples/cache	cm33	XFAIL	XFAIL	YES	Cache Clean success!
+xfail	B ele_crypto/ele_crypto_hsm	cm33	XFAIL	XFAIL	YES	End of Example with SUCCESS!!
+pass	B multicore_examples/multicore_manager/primary	cm33	PASS	PASS	YES	The secondary core application has been started.
+pass	B multicore_examples/rpmsg_lite_pingpong/primary	cm33	PASS	PASS	YES	Message: Size=4, DATA = 101
+xbuild	B driver_examples/edma4/memory_to_memory_trigger	cm33	XBUILD	XBUILD	YES	-
+xbuild	B driver_examples/wdog32	cm33	XBUILD	XBUILD	YES	-
+value	A demo_apps/led_blinky	cm33	RAN	RAN	YES	-
+value	B demo_apps/mc_pmsm/pmsm_enc [builds as pmsm_enc_cm7.elf; QEMU corpus path motor_control/pmsm/... does not exist in SDK 2026.06.00. UPDATED 2026-09-19: that is no longer true -- the cm7 SDK platform (mimxrt1189_cm7_sdk.repl) and a value harness now exist, and ALL 13 of the oracle's motor/ADC value tests PASS on Renode with their unmodified binaries, INCLUDING adc-fifo-align, one of the two tests the QEMU side pins this row on. The other pin, cm7boot, cannot run here for a HARNESS-CAPABILITY reason confirmed by @rt1180emulator (their machine boot-cm7 auto-detect boots the M7 directly with no guest release sequence in the image -- a convenience, not silicon), NOT a model gap. Scored VALUE-PROVEN with that pin gap stated rather than hidden.]	cm7	VALUE-PROVEN	VALUE-PROVEN(13/13, 1 pin unavailable)	YES	-
+pass	B driver_examples/mecc/mecc_single_error	cm33	PASS	PASS	YES	MECC single error example finished successfully
+pass	B driver_examples/mecc/mecc_multi_error	cm33	PASS	PASS	YES	MECC Multiple error example finished successfully

@@ -1,0 +1,219 @@
+--- a/arch/arm/cpu.h.pre-d13	2026-09-19 01:45:07.364318743 -0500
++++ b/arch/arm/cpu.h	2026-09-19 01:45:45.366142067 -0500
+@@ -113,6 +113,11 @@
+ #define USAGE_FAULT_INVPC      (1 << 2) << USAGE_FAULT_OFFSET
+ #define USAGE_FAULT_INVSTATE   (1 << 1) << USAGE_FAULT_OFFSET
+ #define USAGE_FAULT_UNDEFINSTR (1 << 0) << USAGE_FAULT_OFFSET
++/* [RT1180 PATCH -- Renode defect #13] CFSR.STKOF (UFSR bit 4): a stack-limit
++ * violation. tlib stored MSPLIM/PSPLIM and never compared them against SP, and
++ * did not even define this bit -- so ARMv8-M hardware stack protection was
++ * silently inert while every MSR/MRS to the limit registers succeeded. */
++#define USAGE_FAULT_STKOF      (1 << 4) << USAGE_FAULT_OFFSET
+ 
+ /* Secure Fault */
+ #define SECURE_FAULT_LSERR     (1 << 7)
+--- a/arch/arm/helper.c.pre-d13	2026-09-19 01:45:07.363318721 -0500
++++ b/arch/arm/helper.c	2026-09-19 01:48:55.452172060 -0500
+@@ -929,6 +929,87 @@
+ 
+ static void v7m_enter_lockup(CPUState *env, bool clear_itstate);
+ 
++/* [RT1180 PATCH -- Renode defect #13] ARMv8-M stack-limit checking.
++ *
++ * MSPLIM/PSPLIM were readable and writable (helper.c MRS/MSR, cpu.h storage) and
++ * were NEVER COMPARED AGAINST SP anywhere, and CFSR.STKOF did not exist. The
++ * effect is worse than an unimplemented register: an unimplemented PSPLIM would
++ * log an unhandled write and the firmware author would see it, whereas here
++ * `MSR PSPLIM, r0` succeeds, `MRS` reads the value back, every check firmware can
++ * perform passes -- and CONFIG_HW_STACK_PROTECTION on a v8-M part is absent while
++ * appearing present. A stack overflow the silicon would trap runs on into
++ * whatever lies below the stack.
++ *
++ * MEASURED: Zephyr cm33 tests/arch/arm/arm_interrupt sets PSP to
++ * stack_info.start + 0x10 and takes an interrupt so exception-entry stacking
++ * drives PSP below PSPLIM. QEMU raises UsageFault with CFSR.STKOF and Zephyr
++ * reports K_ERR_STACK_CHK_FAIL (reason 2, all-zero ESF); stock Renode took the
++ * interrupt normally and the test asserted "expected_reason has not been reset".
++ */
++static uint32_t v7m_sp_limit(CPUState *env)
++{
++    /* ⚠ SELECT BY WHICH SP IS PHYSICALLY IN regs[13], NOT BY MODE.
++     * The first version asked is_using_process_sp_current(), which consults
++     * in_handler_mode() -- and at the point this is called during exception entry
++     * the NVIC has ALREADY been acknowledged, so v7m.exception is non-zero and the
++     * CPU already counts as being in Handler mode. The frame, however, is still
++     * being pushed on the PRE-EXCEPTION stack (the SP switch happens later, at
++     * switch_v7m_sp(env, false)). So the mode said "main" while regs[13] held PSP,
++     * and the check compared the thread's SP against MSPLIM.
++     *
++     * MEASURED: with the mode-based selection, Zephyr's arm_interrupt stack-overflow
++     * sub-test still failed -- the UsageFault fired, but LATER, on the idle thread
++     * instead of during the test, because it was being measured against the wrong
++     * limit register the whole time.
++     *
++     * This is defect #11's lesson again, one layer down: DO NOT CONSULT THE MODE
++     * AFTER THE MODE HAS CHANGED. v7m.process_sp tracks which physical SP is in
++     * regs[13] right now, which is exactly the stack the frame lands on. */
++    return env->v7m.process_sp ? env->v7m.psplim[env->secure] : env->v7m.msplim[env->secure];
++}
++
++/* Rule RLBTH: the limit check is ignored while a negative-priority exception
++ * (NMI or HardFault) is being taken and CCR.STKOFHFNMIGN is set -- otherwise a
++ * stack overflow inside the HardFault handler would recurse forever.
++ *
++ * ⚠ LABELLED APPROXIMATION. QEMU asks its NVIC directly
++ * (armv7m_nvic_neg_prio_requested). tlib has no such callback, and ADDING one
++ * would change the interop symbol set that this patch's ABI check relies on to
++ * prove the rebuild is compatible. The exception being taken is known here, so
++ * NMI/HardFault is tested directly. FAULTMASK-raised priority is NOT covered by
++ * this approximation; in that narrow case the model faults where hardware would
++ * ignore. Stated, not silently skipped. */
++static bool v7m_stkof_ignored(CPUState *env, int acknowledged_exception)
++{
++    if(!(env->v7m.ccr[env->secure] & FIELD_MASK(V7M_CCR, STKOFHFNMIGN))) {
++        return false;
++    }
++    int nr = acknowledged_exception & ~BANKED_SECURE_EXCP_BIT;
++    return nr == ARMV7M_EXCP_NMI || nr == ARMV7M_EXCP_HARD;
++}
++
++/* Returns true if the frame does NOT fit: sets CFSR.STKOF, parks SP at the limit
++ * and leaves the caller to skip every push. Rule: "Stack pushes below the limit
++ * must not be performed"; whether pushes ABOVE it happen is IMPDEF and we choose
++ * not to, matching QEMU. */
++static bool v7m_check_stack_limit(CPUState *env, uint32_t frame_size, int acknowledged_exception)
++{
++    if(!arm_feature(env, ARM_FEATURE_V8)) {
++        return false;
++    }
++    uint32_t limit = v7m_sp_limit(env);
++    if(env->regs[13] - frame_size >= limit) {
++        return false;
++    }
++    if(v7m_stkof_ignored(env, acknowledged_exception)) {
++        return false;
++    }
++    env->v7m.fault_status[env->secure] |= USAGE_FAULT_STKOF;
++    env->regs[13] = limit;
++    return true;
++}
++
++
+ static int v7m_push(CPUState *env, uint32_t val)
+ {
+     uint32_t phys_ptr = 0;
+@@ -1860,8 +1941,34 @@
+     }
+ 
+     if(arm_feature(env, ARM_FEATURE_V8)) {
+-        /* We're changing v8-M mode here after we know which security state we're targeting. On v8-M SPSEL is always saved. */
+-        *lr = deposit32(*lr, ARM_EXC_RETURN_SPSEL, 1, FIELD_EX32(env->v7m.control[secure_target], V7M_CONTROL, SPSEL));
++        /* [RT1180 PATCH -- Renode defect #11]
++         * We're changing v8-M mode here after we know which security state we're targeting. On v8-M SPSEL is always saved.
++         *
++         * BUT: EXC_RETURN.SPSEL must describe the stack the frame was actually
++         * pushed on, and PushStack() always uses the Main stack when the
++         * exception is taken from Handler mode. The architecture guarantees this
++         * by clearing CONTROL.SPSEL in ExceptionTaken(); tlib does not clear it
++         * (it models "handler mode implies MSP" structurally, in
++         * is_using_process_sp()), so the pre-empted thread's stale
++         * CONTROL.SPSEL=1 leaked into the EXC_RETURN handed to software on a
++         * NESTED exception -- producing 0xFFFFFFF5 (Mode=Handler AND
++         * SPSEL=Process), which cannot occur on real hardware.
++         *
++         * MEASURED before this patch, Zephyr cm33 tests/arch/arm/arm_interrupt:
++         * k_oops() from an ISR pushed a correct frame on MSP (r0=3), but
++         * z_arm_svc's "tst lr,#4 / mrsne r0,PSP" followed the bad bit to PSP and
++         * read the OUTER IRQ-238 entry frame, reporting crash reason 0x4000.
++         * QEMU gets this right via write_v7m_control_spsel(env, 0) in
++         * v7m_exception_taken() (target/arm/tcg/m_helper.c:972).
++         *
++         * On a tail-chain the frame is the one already stacked, so the inherited
++         * SPSEL is correct as-is and must not be recomputed. */
++        if(!do_tailchain) {
++            bool stacked_from_thread_mode = (*lr & ARM_EXC_RETURN_MODE_MASK) != 0;
++            *lr = deposit32(*lr, ARM_EXC_RETURN_SPSEL, 1,
++                            stacked_from_thread_mode &&
++                                FIELD_EX32(env->v7m.control[secure_target], V7M_CONTROL, SPSEL));
++        }
+     }
+     return stack_status;
+ }
+@@ -2020,6 +2127,7 @@
+     env->v7m.exception_phase = V7M_EXCEPTION_PHASE_STACKING;
+     env->v7m.exception_phase_fault = 0;
+ 
++    bool stack_limit_violated = false;
+     if(!exception_return_tailchain) {
+         /* Align stack pointer.  */
+         /* ??? Should do this if Configuration Control Register
+@@ -2030,6 +2138,24 @@
+         }
+         xpsr |= env->v7m.control[M_REG_COMMON] & ARM_CONTROL_SFPA_MASK ? RETPSR_SFPA : 0;
+ 
++        /* [RT1180 PATCH -- defect #13] PushStack() checks the WHOLE frame against
++         * the stack limit BEFORE writing any of it. The size must be known up
++         * front, which is why this cannot be a per-word check inside v7m_push():
++         * the base frame is pushed highest-address-first, so a per-word check
++         * would write 7 of the 8 words and only then fault -- leaving a partially
++         * written frame where the architecture (and QEMU) leave none, and
++         * producing a different ESF from the same firmware. */
++        {
++            uint32_t frame_size = 0x20;
++            if(env->v7m.control[M_REG_COMMON] & ARM_CONTROL_FPCA_MASK) {
++                frame_size += fp_get_reservation_size(env);
++            }
++            stack_limit_violated = v7m_check_stack_limit(env, frame_size, acknowledged_exception);
++        }
++    }
++
++    if(!exception_return_tailchain && !stack_limit_violated) {
++
+         /* Push extended frame  */
+         if(env->v7m.control[M_REG_COMMON] & ARM_CONTROL_FPCA_MASK) {
+             env->v7m.control[M_REG_COMMON] &= ~ARM_CONTROL_FPCA_MASK;
+@@ -2091,6 +2217,14 @@
+         stack_status |= v7m_push(env, env->regs[0]);
+     }
+ 
++    /* [RT1180 PATCH -- defect #13] A stack-limit violation is a DERIVED fault, the
++     * same shape as a stacking memory fault: DerivedLateArrival() re-selects the
++     * exception without allocating another frame. Feeding it through
++     * exception_phase_fault reuses that path rather than inventing a second one. */
++    if(stack_limit_violated && env->v7m.exception_phase_fault == 0) {
++        env->v7m.exception_phase_fault = v7m_exception_number_with_security(env, ARMV7M_EXCP_USAGE, env->secure);
++    }
++
+     int stacking_fault = env->v7m.exception_phase_fault;
+     tlib_assert(!stack_status || stacking_fault != 0);
+     env->v7m.exception_phase_fault = 0;
+@@ -3329,6 +3463,29 @@
+          */
+         if(!mpu_enabled || (!is_user && PMSA_PRIVDEFENA(env->pmsav8[secure].ctrl))) {
+             *prot = cortexm_check_default_mapping_v8(address);
++        } else if(is_user && unlikely(env->v7m.ccr[secure] & FIELD_MASK(V7M_CCR, USERSETMPEND)) &&
++                  tlib_nvic_is_stir_address(address)) {
++            /* [RT1180 PATCH -- Renode defect #12]
++             * STIR is the one SCS register the architecture makes accessible to
++             * unprivileged software, gated on CCR.USERSETMPEND. tlib already
++             * implements this on the PMSAv7 path (get_phys_addr_mpu(), the
++             * background-fault arm) but the PMSAv8 lookup the Cortex-M33 uses is
++             * a SEPARATE function and never got the rule -- so the same firmware
++             * passes on the M7 and takes an MPU DACCVIOL on the M33.
++             *
++             * MEASURED before this patch, Zephyr cm33
++             * tests/arch/arm/arm_thread_swap: the test sets CCR.USERSETMPEND on
++             * purpose, then its user thread stores to STIR (0xE000EF00) and dies
++             * with "MPU FAULT / Data Access Violation / MMFAR 0xE000EF00".
++             * QEMU is immune by shape: ptw.c exempts the whole PPB from the MPU on
++             * BOTH profiles and armv7m_nvic.c:nvic_user_access_ok() owns the
++             * per-register privilege rule -- one place to be right instead of two.
++             *
++             * Page size 0 so the permission is never cached for the whole page. */
++            *prot = PAGE_READ | PAGE_WRITE;
++            if(page_size != NULL) {
++                *page_size = 0;
++            }
+         } else {
+             goto do_fault;
+         }

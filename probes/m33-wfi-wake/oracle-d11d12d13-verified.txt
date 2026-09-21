@@ -1,0 +1,2 @@
+WFI-TEST: armed, entering WFI
+WFI-TEST: PASS - SysTick woke the core from WFI, handler ran, main resumed

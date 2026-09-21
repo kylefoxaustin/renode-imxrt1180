@@ -1,0 +1,82 @@
+diff --git a/src/Emulator/Cores/Arm/SemihostingHandler.cs b/src/Emulator/Cores/Arm/SemihostingHandler.cs
+index 3db164e..3b83b1f 100644
+--- a/src/Emulator/Cores/Arm/SemihostingHandler.cs
++++ b/src/Emulator/Cores/Arm/SemihostingHandler.cs
+@@ -15,6 +15,7 @@
+ using Antmicro.Renode.Exceptions;
+ using Antmicro.Renode.Logging;
+ using Antmicro.Renode.Peripherals.UART;
++using Antmicro.Renode.Utilities;   // RT1180 PATCH (defect #16): Misc.UnixEpoch
+ 
+ namespace Antmicro.Renode.Peripherals.CPU
+ {
+@@ -455,6 +456,60 @@ public uint DoSemihosting(uint operationNumber, uint argumentsAddress)
+                 // Return value: "None. Return register is corrupted", so we decide to set it to 0
+                 return 0;
+             }
++            /* ── RT1180 PATCH (defect #16): SYS_CLOCK / SYS_TIME ───────────────
++             *
++             * Both are declared in the Operation enum and had NO case here, so
++             * they fell through to `default:` and returned -1. A guest that
++             * timestamps with semihosting reads 0xFFFFFFFF on Renode while
++             * reading a real clock on QEMU.
++             *
++             * MEASURED, the fleet's lab-3 node firmware, same ELF on both:
++             *   QEMU   -> t=1789974258.340   (host clock at the time: 1789974870)
++             *   Renode -> t=4294967295.000   == 0xFFFFFFFF
++             * and the Renode node's log carried "Unhandled 0x11 operation (SYS_TIME)".
++             *
++             * ⭐ BOTH READ VIRTUAL TIME, NOT THE HOST CLOCK.
++             *
++             *  - SYS_CLOCK is specified as "centiseconds since execution
++             *    started", which IS virtual time. Reading the host clock for it
++             *    would make a deterministic emulator answer differently on every
++             *    replay of an identical run.
++             *
++             *  - SYS_TIME defers to `machine.RealTimeClockDateTime`, Renode's OWN
++             *    wall-clock convention (RealTimeClockStart + elapsed virtual
++             *    time), already used by AmbiqApollo4_RTC, ZynqMP_RTC and
++             *    MAX32650_RTC. Semihosting then agrees with the RTC on the same
++             *    machine and the existing RealTimeClockMode knob keeps working.
++             *
++             * ⚠ RealTimeClockMode defaults to `Epoch` (1970 + virtual time), so a
++             * guest wanting a present-day epoch needs `machine RealTimeClockMode
++             * HostTimeUTC`. Deliberate, labelled difference from QEMU, which reads
++             * the host clock unconditionally and offers no choice: here the
++             * reproducible behaviour is the default and the host clock is opt-in.
++             */
++            case Operation.SYS_CLOCK:
++            {
++                LogReceived("SYS_CLOCK", "no args");
++                var centiseconds = machine.ElapsedVirtualTime.TimeElapsed.TotalSeconds * 100.0;
++                if(centiseconds < 0 || centiseconds >= uint.MaxValue)
++                {
++                    // -1 is the specified error return; it is NOT a valid reading.
++                    LogFailure("SYS_CLOCK", "elapsed virtual time does not fit in the return value");
++                    return unchecked((uint)-1);
++                }
++                return (uint)centiseconds;
++            }
++            case Operation.SYS_TIME:
++            {
++                LogReceived("SYS_TIME", "no args");
++                var seconds = (machine.RealTimeClockDateTime - Misc.UnixEpoch).TotalSeconds;
++                if(seconds < 0 || seconds >= uint.MaxValue)
++                {
++                    LogFailure("SYS_TIME", "the machine clock does not fit in a 32-bit time_t");
++                    return unchecked((uint)-1);
++                }
++                return (uint)seconds;
++            }
+             case Operation.angel_SWIreason_EnterSVC:
+             case Operation.angelSWI_Reason_SyncCacheRange:
+             {
+@@ -639,7 +694,7 @@ private bool IsReturnError(Operation operation, int returnCode)
+                  * TODO: Add check for the following when they get implemented
+                  * SYS_HEAPINFO
+                  * SYS_SYSTEM
+-                 * SYS_TIME
++                 * (SYS_TIME is implemented -- RT1180 PATCH, defect #16)
+                  */
+                 return returnCode < 0;
+             }
