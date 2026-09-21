@@ -53,8 +53,11 @@ RENODE="${RENODE:-/home/kyle/.cache/renode/renode_1.17.0-portable/renode}"
 #     REPLACED -- an EXIT trap would never fire, and writing one would be a
 #     cleanup that looks present in the source and does nothing at runtime
 #     (exactly the "reports work it did not do" class this repo keeps finding).
-#     The generated files are instead parked under ONE root that the runner
-#     wipes before a session: see $HOLOBENCH_TMP below and run_holobench.sh.
+#     The generated files are instead parked under ONE root, and THIS SCRIPT
+#     PRUNES ITS OWN STALE DIRS on the way in (below). An earlier version of
+#     this comment promised the cleanup to a "run_holobench.sh" that was never
+#     written -- a comment describing work nothing performed, which is the same
+#     defect class this repo keeps finding, just in prose instead of code.
 #  5. THE SCRATCH ROOT IS USER-OWNED AND NAMESPACED, because /tmp/holobench is
 #     ALREADY TAKEN -- by the real fleet holobench, root-owned, with an
 #     imx95-evk lab sitting in it. The first version of this script used that
@@ -65,6 +68,13 @@ RENODE="${RENODE:-/home/kyle/.cache/renode/renode_1.17.0-portable/renode}"
 TAG="$(echo "${GROUP}_${PORT}" | tr '.:' '__')"
 ROOTTMP="${HOLOBENCH_TMP:-${TMPDIR:-/tmp}/rt1180renode-holobench-$(id -u)}"
 mkdir -p "$ROOTTMP" || { echo "holobench-node: cannot create $ROOTTMP" >&2; exit 2; }
+# Prune node dirs from finished runs. Bounded by AGE, not by count, and it never
+# touches a dir younger than an hour -- concurrent nodes (wire-check runs three)
+# must not clean up under each other. Each dir is a few KiB; the point is that
+# the root cannot grow without limit across a long session.
+find "$ROOTTMP" -maxdepth 1 -name 'node-*' -type d -mmin +60 \
+    -exec rm -rf {} + 2>/dev/null || true
+
 TMP="$ROOTTMP/node-$TAG.$$"
 mkdir -p "$TMP" || { echo "holobench-node: cannot create $TMP" >&2; exit 2; }
 
