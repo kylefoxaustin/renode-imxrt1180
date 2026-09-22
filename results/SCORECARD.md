@@ -2015,6 +2015,46 @@ demands it.
 
 ---
 
+# 💡 RGPIO — the row that was green because both sides were silent
+
+`demo_apps/led_blinky` scored **RAN / RAN → agree = YES** for as long as this
+table has existed. The QEMU corpus asserts something real for that row —
+*"RGPIO4[27] toggle observable in PDOR"* — and this side could not assert it,
+because **there was no RGPIO block at all**. The weakest observable always
+agrees.
+
+> ⭐ **A ROW WHERE BOTH SIDES REPORT "IT RAN" IS NOT AGREEMENT. IT IS TWO
+> SILENCES THAT HAPPEN TO MATCH.** Found in this very table, not in a model.
+
+`scripts/run_rgpio_value.sh` now measures **both emulators in one run** — Renode
+through the monitor, QEMU through QMP `human-monitor-command` — on the same
+pinned binary (`led_blinky_cm33.bin`, sha `5852b95c…`):
+
+```
+  renode PDOR bit: 000000000011111111110000
+  qemu   PDOR bit: 000000000011111111110000
+  PDDR   renode=0x08000000 qemu=0x08000000   (bit 27 = EVK user LED)
+  RGPIO PASS - observed BOTH high and low on BOTH emulators (measured, not quoted)
+```
+
+Not merely "both toggled": **the same phase and duty, sample for sample.**
+
+**The assertion is a TOGGLE, not a level** — one sample of PDOR proves nothing,
+since bit 27 reads 0 both when the LED is off and when the register does not
+exist. The bit must be seen high *and* low, on each emulator independently.
+
+**Mutation-proven both ways.** Move RGPIO4 off its base and the Renode column
+goes red while QEMU stays green.
+
+> ⚠️ And the mutation run exposed a defect in the CHECKER, which is the more
+> useful finding. Renode echoes a failing command, and those echoes carry
+> 0x-prefixed 8-digit tokens that look exactly like samples: the checker scraped
+> `0x43830054` — the PDDR **address** — and printed it as the PDDR **value**. It
+> did not flip that verdict, but a parser that can mistake an address for a
+> reading can lie in the other direction. It now drops the queried addresses and
+> demands ≥20 of 24 samples, reporting a short window as a **harness failure,
+> explicitly not as a statement about the model**.
+
 # 🔌 The wire block — NETC 7/7, driven by the oracle's own harnesses unchanged
 
 | test | result | how |
