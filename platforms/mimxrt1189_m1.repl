@@ -453,3 +453,104 @@ flexcan1: CAN.IMXRT1180_FlexCAN @ sysbus 0x443A0000
 usdhc1: SD.IMXRT1180_USDHC @ sysbus 0x42850000
 
 usdhc2: SD.IMXRT1180_USDHC @ sysbus 0x42860000
+
+// ── RGPIO1..6 ────────────────────────────────────────────────────────────────
+// Bases SOURCED from the QEMU oracle, hw/arm/imxrt1180_soc.c:717. The EVK user
+// LED is RGPIO4[27], which is what makes demo_apps/led_blinky assertable at all:
+// before this block existed that row scored RAN/RAN -- two silences agreeing.
+rgpio1: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x47400000
+rgpio2: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x43810000
+rgpio3: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x43820000
+rgpio4: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x43830000
+rgpio5: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x43840000
+rgpio6: GPIOPort.IMXRT1180_RGPIO @ sysbus 0x43850000
+
+// ── RTWDOG1..5 ───────────────────────────────────────────────────────────────
+// Bases SOURCED from hw/arm/imxrt1180_soc.c:589. SystemInit unlocks and disables
+// each of these early in boot; without them the unlock keys (0xC520/0xD928) were
+// being written into unmapped space on every single boot.
+rtwdog1: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x442D0000
+rtwdog2: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x442E0000
+rtwdog3: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x42490000
+rtwdog4: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x424A0000
+rtwdog5: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x424B0000
+
+// ═══ FULL INSTANCE COMPLEMENT ═══════════════════════════════════════════════
+// The QEMU oracle instantiates every instance of each family; this side had been
+// mapping only the ones the corpus happened to touch. That is a capability gap
+// even when no test notices: firmware addressing LPIT2 or TPM4 hits unmapped
+// space and the model says nothing useful about why.
+// Every base and IRQ below is SOURCED from hw/arm/imxrt1180_soc.c -- the cfg
+// tables at :789/:813/:832/:856/:1224/:1235/:1246 and the stride-based maps for
+// TMR (IMXRT1180_TMR1_BASE + i*0x10000) and CMP (0x42DC0000 + i*0x10000).
+lpit2: Timers.IMXRT1180_LPIT @ sysbus 0x424C0000
+    0 -> nvic@64
+
+lpit3: Timers.IMXRT1180_LPIT @ sysbus 0x42CC0000
+    0 -> nvic@149
+
+flexcan2: CAN.IMXRT1180_FlexCAN @ sysbus 0x425B0000
+    0 -> nvic@51
+
+flexcan3: CAN.IMXRT1180_FlexCAN @ sysbus 0x445B0000
+    0 -> nvic@191
+
+lptmr2: Timers.IMXRT1180_LPTMR @ sysbus 0x424D0000
+    0 -> nvic@67
+
+lptmr3: Timers.IMXRT1180_LPTMR @ sysbus 0x42CD0000
+    0 -> nvic@150
+
+gpt2: Timers.IMXRT1180_GPT @ sysbus 0x42EC0000
+    0 -> nvic@210
+
+tpm2: Timers.IMXRT1180_TPM @ sysbus 0x44320000
+    0 -> nvic@37
+
+tpm3: Timers.IMXRT1180_TPM @ sysbus 0x424E0000
+    0 -> nvic@75
+
+tpm4: Timers.IMXRT1180_TPM @ sysbus 0x424F0000
+    0 -> nvic@76
+
+tpm5: Timers.IMXRT1180_TPM @ sysbus 0x42500000
+    0 -> nvic@77
+
+tpm6: Timers.IMXRT1180_TPM @ sysbus 0x42510000
+    0 -> nvic@78
+
+tmr2: Timers.IMXRT1180_QTMR @ sysbus 0x426A0000
+    0 -> nvic@233
+
+tmr3: Timers.IMXRT1180_QTMR @ sysbus 0x426B0000
+    0 -> nvic@164
+
+tmr4: Timers.IMXRT1180_QTMR @ sysbus 0x426C0000
+    0 -> nvic@151
+
+tmr5: Timers.IMXRT1180_QTMR @ sysbus 0x426D0000
+    0 -> nvic@4
+
+tmr6: Timers.IMXRT1180_QTMR @ sysbus 0x426E0000
+    0 -> nvic@5
+
+tmr7: Timers.IMXRT1180_QTMR @ sysbus 0x426F0000
+    0 -> nvic@6
+
+tmr8: Timers.IMXRT1180_QTMR @ sysbus 0x42700000
+    0 -> nvic@7
+
+cmp2: Miscellaneous.IMXRT1180_CMP @ sysbus 0x42DD0000
+
+cmp3: Miscellaneous.IMXRT1180_CMP @ sysbus 0x42DE0000
+
+cmp4: Miscellaneous.IMXRT1180_CMP @ sysbus 0x42DF0000
+
+sema42_2: Miscellaneous.IMXRT1180_SEMA42 @ sysbus 0x42450000
+
+lpspi2: SPI.IMXRT1180_LPSPI @ sysbus 0x44370000
+
+lpspi5: SPI.IMXRT1180_LPSPI @ sysbus 0x42D50000
+
+lpspi6: SPI.IMXRT1180_LPSPI @ sysbus 0x42D60000
+

@@ -5709,3 +5709,90 @@ baseline. NETC is **7/7**.
 Mutation proof, swapping only `Infrastructure.dll`:
 `02d8f934…` → **FAIL** `t=4294967295.000`; `814444ea…` → **PASS**,
 `t=1790010017.220 -> 1790010019.670` over 26 beats.
+
+---
+
+# 🧩 100% BLOCK EQUIVALENCY — the audit, and what following symptoms had missed
+
+Kyle: *"I want 100% functional equivalency. Meaning if qemu models a GPIO or a
+UART or I2C or core to core communications and renode doesn't, I want that
+closed."*
+
+I had found RGPIO and RTWDOG by **following symptoms** — unmapped-access warnings
+in a boot log. That is a fine way to find a bug and a **terrible way to bound a
+gap**: it can only surface blocks that some firmware in the corpus happens to
+touch. The audit that actually answers the question compares against the oracle's
+`imxrt1180_soc.c` instance-for-instance.
+
+It found **12 more families short**, none of which any test had complained about.
+
+## Tier 1 — no model existed at all
+
+| block | instances | evidence it was needed |
+|---|---|---|
+| **RGPIO** | 6 | 18 unmapped writes to `0x43830044` + 18 to `0x43830054` per boot = RGPIO4 **PSOR** and **PDDR**: firmware setting a direction and driving a pin into nothing |
+| **RTWDOG** | 5 | 9 unmapped accesses each at `0x442D0000`/`0x442E0000`, with `0xC520` then `0xD928` at +0x4 — the unlock key sequence, going nowhere |
+
+Both ported from the oracle, **including its two paid-for reset lessons**: RTWDOG
+`CS` resets to `0x900` (a zero CS is a disabled watchdog with a zero timeout, and
+`RTWDOG_Init` read-modify-writes it), and `RCS` is **latched**, never ORed in —
+a watchdog must not report a reconfiguration it was never asked to perform.
+
+## ⭐ AND RGPIO'S ABSENCE HAD BEEN HIDING BEHIND A GREEN ROW
+
+`demo_apps/led_blinky` scored **RAN / RAN → agree = YES** on the equivalency
+table. The QEMU corpus asserts something real for that row — *"RGPIO4[27] toggle
+observable in PDOR"* — and this side could not assert it, because **the register
+the toggle lands in did not exist**.
+
+> ⭐ **A ROW WHERE BOTH SIDES REPORT "IT RAN" IS NOT AGREEMENT. It is two
+> silences that happen to match.** The weakest observable always agrees. This is
+> the project's own "green is not fidelity" rule, found this time in my own
+> results table rather than in a model.
+
+Now MEASURED, stock SDK `rled_blinky_demo_cm33.bin`:
+
+```
+PDDR (0x43830054) = 0x08000000          bit 27 -- the EVK user LED, configured as output
+PDOR (0x43830040) x24 samples:
+  0x00000000 x10 -> 0x08000000 x10 -> 0x00000000 x4      one full blink period
+```
+
+⚠ Two things worth recording about that test. The stock `led_blinky` **source
+does not build** against this SDK (`BOARD_USER_LED_GPIO_PIN` undeclared,
+warnings-as-errors), so the SDK's **prebuilt** binary was used — which is the
+better test anyway, since both models run the byte-identical image. And there is
+**no led_blinky artifact in the pinned set**, so that equivalency row was never
+backed by a binary on either side.
+
+## Tier 2 — the model existed; the instances did not
+
+Twelve families were mapping only the instances the corpus happened to touch:
+
+```
+LPUART 2→12   TMR 1→8    TPM 1→6    LPSPI 3→6   CMP 1→4
+EQDC 1→4      PWM 1→4    LPIT 1→3   LPTMR 1→3   FLEXCAN 1→3
+GPT 1→2       SEMA42 1→2
+```
+
+Every base and IRQ **SOURCED** from `hw/arm/imxrt1180_soc.c` — the cfg tables at
+`:533/:789/:813/:832/:856/:1224/:1235/:1246`, the stride maps for TMR
+(`IMXRT1180_TMR1_BASE + i*0x10000`) and CMP (`0x42DC0000 + i*0x10000`), and
+`soc.h:188-189` for EQDC. **Nothing derived from a pattern I inferred myself.**
+
+IRQ lines were added only where the family's instance 1 already wires one: a
+dangling GPIO is worse than an absent one (`Error E14`, learned on uSDHC).
+
+**Result: 22 of 22 families at full complement, 0 short.**
+
+## Regression
+
+45 PASS / 0 FAIL / 10 NEEDS-OWN-HARNESS, **no row changed verdict**, coverage
+asserted 55 == 55; M0 PASS; `netc-flood` and `netc-portfwd` byte-exact;
+`netc-lab3` on Renode through the QEMU harness still `rc=0`, all eight phases.
+
+> ⭐ **THE LESSON IS ABOUT THE AUDIT, NOT THE BLOCKS.** Following symptoms found
+> 2 of 14 gaps. The other 12 were invisible because *no test addressed those
+> instances* — and a test suite cannot complain about an address nobody sends.
+> Bounding a gap requires enumerating the reference, not waiting for the subject
+> to fail.

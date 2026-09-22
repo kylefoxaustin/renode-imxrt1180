@@ -58,3 +58,5 @@ i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_Misc.cs
 i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_FlexCAN.cs
 i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_USDHC.cs
 i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/UdpWire.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_RGPIO.cs
+i @/home/kyle/Documents/GitHub/rt1180renode/peripherals/IMXRT1180_RTWDOG.cs

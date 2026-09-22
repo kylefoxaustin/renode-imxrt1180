@@ -233,3 +233,51 @@ sysbus:
         // blocks hello_world actually touches. Nothing is stubbed pre-emptively:
         // stubbing before seeing the trace would hide the very thing I need.
         Tag <0xE0001000 0xE0001FFF> "DWT"
+
+// ── LPUART2..11 ──────────────────────────────────────────────────────────────
+// The QEMU oracle maps all twelve; this side mapped only LPUART1 (console) and
+// LPUART12 (Zephyr's console), because those are the two the corpus happens to
+// use. Bases and IRQs SOURCED from hw/arm/imxrt1180_soc.c:533 (lpuart_cfg[]).
+// fifoSize 16 for the same reason lpuart1 sets it: the RT1180 FIFO is 16 deep
+// (FSL_FEATURE_LPUART_FIFO_SIZEn == 16), and Renode's model defaults to 256,
+// which reports a wrong encoded depth in FIFO[RX/TXFIFOSIZE].
+lpuart2: UART.NXP_LPUART @ sysbus 0x44390000
+    fifoSize: 16
+    IRQ -> nvic@20
+
+lpuart3: UART.NXP_LPUART @ sysbus 0x42570000
+    fifoSize: 16
+    IRQ -> nvic@68
+
+lpuart4: UART.NXP_LPUART @ sysbus 0x42580000
+    fifoSize: 16
+    IRQ -> nvic@69
+
+lpuart5: UART.NXP_LPUART @ sysbus 0x42590000
+    fifoSize: 16
+    IRQ -> nvic@70
+
+lpuart6: UART.NXP_LPUART @ sysbus 0x425A0000
+    fifoSize: 16
+    IRQ -> nvic@71
+
+lpuart7: UART.NXP_LPUART @ sysbus 0x44570000
+    fifoSize: 16
+    IRQ -> nvic@196
+
+lpuart8: UART.NXP_LPUART @ sysbus 0x42DA0000
+    fifoSize: 16
+    IRQ -> nvic@197
+
+lpuart9: UART.NXP_LPUART @ sysbus 0x42D70000
+    fifoSize: 16
+    IRQ -> nvic@156
+
+lpuart10: UART.NXP_LPUART @ sysbus 0x42D80000
+    fifoSize: 16
+    IRQ -> nvic@157
+
+lpuart11: UART.NXP_LPUART @ sysbus 0x42D90000
+    fifoSize: 16
+    IRQ -> nvic@158
+

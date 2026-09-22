@@ -383,3 +383,24 @@ msgintr6: IRQControllers.IMXRT1180_MSGINTR @ sysbus 0x428F0000
 // triggers already routed to the XBAR above).
 dmareq: Miscellaneous.IMXRT1180_DMARequestRouter @ none
     DMA: edma4
+
+// ── EQDC2..4 / PWM2..4 ───────────────────────────────────────────────────────
+// SOURCED: EQDC base = IMXRT1180_EQDC1_BASE + i*0x10000 (soc.h:188), IRQ =
+// IMXRT1180_EQDC1_IRQ + i (soc.h:189, "EQDC1..4 = 185..188"); PWM bases from
+// the pwm_cfg table at soc.c:1056. Only eqdc1/pwm1 carry motor links -- the
+// others are mapped so firmware addressing them finds a device rather than a
+// hole, which is the point of the instance complement.
+eqdc2: Miscellaneous.IMXRT1180_EQDC @ sysbus 0x42720000
+    0 -> nvic@186
+
+eqdc3: Miscellaneous.IMXRT1180_EQDC @ sysbus 0x42730000
+    0 -> nvic@187
+
+eqdc4: Miscellaneous.IMXRT1180_EQDC @ sysbus 0x42740000
+    0 -> nvic@188
+
+pwm2: Miscellaneous.IMXRT1180_PWM @ sysbus 0x42660000
+
+pwm3: Miscellaneous.IMXRT1180_PWM @ sysbus 0x42670000
+
+pwm4: Miscellaneous.IMXRT1180_PWM @ sysbus 0x42680000
