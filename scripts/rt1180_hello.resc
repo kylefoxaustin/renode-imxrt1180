@@ -5,7 +5,7 @@ using sysbus
 include @/home/kyle/Documents/GitHub/rt1180renode/scripts/load_peripherals.resc
 
 mach create "rt1180"
-machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_cm33.repl
+machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platforms/mimxrt1189_m1.repl
 
 
 # ⭐ BLANKET TrustZone-M SECURE MIRROR.

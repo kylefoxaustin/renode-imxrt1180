@@ -8,7 +8,7 @@ networking.
 
 - **Built on** Renode 1.17.0 — declarative `.repl` platforms plus self-contained C#
   peripherals in `peripherals/`, loaded at runtime (`i @file.cs`), no emulator rebuild.
-- **Sibling of** [`rt1180emulator`](https://github.com/kylefoxaustin/rt1180emulator), the
+- **Sibling of** [`qemu-imxrt1180`](https://github.com/kylefoxaustin/qemu-imxrt1180), the
   QEMU model of the same silicon. **That model is this one's reference oracle**: the same
   vendor firmware and the same external test corpus run against both, and every row is
   measured on both sides rather than quoted from one.
@@ -44,9 +44,9 @@ the QEMU model's external test corpus — **the same binaries, not ports**.
 
 | axis | result |
 |---|---|
-| **SDK console corpus vs QEMU** | **31 / 31 agree, differ 0** — both columns MEASURED on one box, same bytes handed to both emulators in the same run |
+| **SDK console corpus vs QEMU** | **30 / 30 examples agree, differ 0** (31 rows) — both columns MEASURED on one box, same bytes handed to both emulators in the same run |
 | **Oracle value tests** | **45 / 55 PASS, 0 FAIL, 0 unexplained** — the other 10 ship their own harness and are driven through it |
-| **Zephyr console delta** | **73 / 83** agree (48 byte-identical + 25 differing only in timings/tick counts); every non-agreeing row has a named cause |
+| **Zephyr console delta** | **70 / 76 scoreable** agree (44 byte-identical + 26 differing only in durations/counters), over 90 targets. 14 are **unscoreable** — free-running samples that never terminate, whose line count measures the run guard, not the model; they are counted neither way |
 | **Dual-core (the M2 rung)** | **8 / 8** |
 | **Audio** | **5 / 5** — six SAI operating points byte-exact |
 | **NETC switch** | **7 / 7** — including `netc-lab3`, run on a live multicast segment through the QEMU model's **own** `wire-check.py`, every assertion unchanged |
@@ -78,7 +78,7 @@ UDP wires.
 
 ## Patched core: four Cortex-M defects fixed in `tlib`
 
-Renode's CPU core carried defects that no peripheral work could reach. All four are
+Renode carried defects that no peripheral work could reach. The four `tlib` ones are
 **mutation-proven** — the fix is switched off and on by swapping only the `.so`, and the
 verdict flips with it — and ABI-verified (2564 symbols, 0 missing, 0 extra) before
 install, with M0 as a positive control.

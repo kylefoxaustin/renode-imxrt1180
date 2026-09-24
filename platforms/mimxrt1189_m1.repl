@@ -564,4 +564,9 @@ adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
     0 -> nvic@93
 
 adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
-    0 -> nvic@94
+    // IRQ 189, SOURCED from imxrt1180_soc.h:194 (IMXRT1180_ADC2_IRQ). It was
+    // written here as 94 -- inferred as "ADC1's 93, plus one", which is exactly
+    // the fabrication this project forbids. The ADC IRQs are not adjacent: 93
+    // and 189. Caught when m2 (which had the correct value) collided with this
+    // one during the platform merge.
+    0 -> nvic@189

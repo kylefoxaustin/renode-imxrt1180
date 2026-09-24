@@ -71,20 +71,8 @@ flexspi2: Miscellaneous.IMXRT1180_FlexSPI @ sysbus 0x445E0000
 // load-bearing in ways the RM's reset column would not warn you about.
 // GPIO 0 is the NVIC line; 1 and 2 are the eDMA result-FIFO request lines, left
 // unconnected here because no eDMA row on this platform consumes them yet.
-adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
-    0 -> nvic@93
 
-adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
-    0 -> nvic@189
 
-// ---- Motor-control blocks: the FOC loop's actual hardware ----
-// All bases and IRQs from MIMXRT1189_cm7_COMMON.h; all four models ported from
-// the oracle's C device models (see each .cs header for what had to be right).
-//
-// PWM1 (eFlexPWM) — PWM1_BASE 0x42650000. Four submodules, four IRQs:
-//   PWM1_0..3 = 24..27, PWM1_FAULT = 23. [cmsis]
-// GPIO map: 0-3 per-submodule compare/reload IRQ, 4-7 output trigger (-> XBAR),
-// 8-11 per-submodule value-DMA request.
 pwm1: Miscellaneous.IMXRT1180_PWM @ sysbus 0x42650000
     0 -> nvic@24
     1 -> nvic@25

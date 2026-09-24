@@ -1,6 +1,11 @@
 // MIMXRT1189 — M2 platform. Extends the M0 CM33 platform with eDMA4.
 // Kept separate so M0 stays exactly as verified.
-using "mimxrt1189_cm33.repl"
+// ⭐ PARENTED ON m1, NOT cm33 -- so the dual-core platform carries the SAME
+// peripheral complement as every other harness platform. It inherited the bare
+// base and was missing usbphy1, lpspi3, gpt2, sai1, lptmr1 and flexcan3, which
+// the board's own devicetree enables. (Found by check_platform_capability.sh,
+// the guard written after zephyr.repl turned out to have the identical bug.)
+using "mimxrt1189_m1.repl"
 
 // ---- eDMA4 ----
 // DMA4_BASE 0x42000000 (NS) / 0x52000000 (secure). [cmsis]
@@ -9,62 +14,6 @@ using "mimxrt1189_cm33.repl"
 // against the QEMU oracle's hw/arm/imxrt1180_soc.c edma_cfg[] table, which
 // cites PERI_DMA4.h. Renode exposes this as the `channelSize` parameter, so no
 // model change is needed -- only the right number.
-edma4: DMA.IMXRT1180_eDMA @ {
-        sysbus new Bus.BusPointRegistration { address: 0x42000000 }
-    }
-    // ⚠ DEVIATION, LABELLED: RT1180's eDMA4 has **64** channels. Renode's
-    // NXP_eDMA hard-caps at 32 (MaximumNumberOfChannels), because MP_INT and
-    // MP_HRS are single 32-bit registers with one flag per channel; eDMA4 needs
-    // MP_INT_L/H pairs. That is a MODEL CHANGE, not a parameter.
-    // 32 is used here ONLY to let the pre-registered eDMA timing test run --
-    // InitCM7DMA/Prepare_CM7 uses channel 0. Channels 32-63 DO NOT EXIST in
-    // this platform and anything touching them is silently absent.
-    // eDMA4 uses GROUPED interrupts: channels 2k, 2k+1, 2k+32 and 2k+33 all
-    // share NVIC IRQ 128+k (16 IRQs, 128..143 for 64 channels). Verified against
-    // the QEMU oracle (hw/arm/imxrt1180_soc.c: "eDMA4 (64 channels, grouped IRQ:
-    // channels 2k/2k+1/2k+32/2k+33 share IRQ 128+k)"). This platform declares 32
-    // channels, so only the 2k / 2k+1 half of each group is present.
-    numberOfChannels: 32
-    0 -> nvic@128
-    1 -> nvic@128
-    2 -> nvic@129
-    3 -> nvic@129
-    4 -> nvic@130
-    5 -> nvic@130
-    6 -> nvic@131
-    7 -> nvic@131
-    8 -> nvic@132
-    9 -> nvic@132
-    10 -> nvic@133
-    11 -> nvic@133
-    12 -> nvic@134
-    13 -> nvic@134
-    14 -> nvic@135
-    15 -> nvic@135
-    16 -> nvic@136
-    17 -> nvic@136
-    18 -> nvic@137
-    19 -> nvic@137
-    20 -> nvic@138
-    21 -> nvic@138
-    22 -> nvic@139
-    23 -> nvic@139
-    24 -> nvic@140
-    25 -> nvic@140
-    26 -> nvic@141
-    27 -> nvic@141
-    28 -> nvic@142
-    29 -> nvic@142
-    30 -> nvic@143
-    31 -> nvic@143
-
-edma4_channels: DMA.IMXRT1180_eDMA_Channels @ {
-        sysbus new Bus.BusPointRegistration { address: 0x42010000 }
-    }
-    dma: edma4
-    count: 32   // see the deviation note above
-    channelSize: 0x8000
-
 // ---- Cortex-M7 secondary core ----
 // M7 has 4 priority bits [brief] -> top 4 bits implemented.
 nvic1: IRQControllers.NVIC @ {
@@ -143,24 +92,9 @@ mu1: Miscellaneous.IMXRT700_MessagingUnit @ {
 // Bases + IRQs SOURCED from the oracle's SoC wiring, same as the motor platform.
 // No dmareq lines here: this platform models no DMA request router, and a dangling
 // GPIO connection is worse than an absent one.
-adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
-    0 -> nvic@93
-
-adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
-    0 -> nvic@189
-
 // ---- TRDC1..3 (config stub -- enforces nothing, see the .cs) ----
 // Bases and per-instance ncmMask from the QEMU oracle's trdc_base[] /
 // trdc_ncm_mask[] tables in hw/arm/imxrt1180_soc.c.
-trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
-    ncmMask: 0x04
-
-trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
-    ncmMask: 0x1C
-
-trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
-    ncmMask: 0x1B
-
 // ---- DCDC buck regulator ----
 // fsl_dcdc's DCDC_SetVDD1P0BuckModeTargetVoltage spins on REG0[STS_DC_OK]
 // (bit 31) waiting for the converter to settle -- an infinite loop against an
@@ -169,25 +103,20 @@ trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
 // The virtual regulator is always settled, so STS_DC_OK is forced; other REG*
 // fields are register-backed. Base + mask from the oracle's
 // imxrt1180_add_rdy_bit(s, "dcdc", 0x44520000, 0x1000, 0, 0x80000000).
-dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
-    readyOffset: 0x0
-    readyMask: 0x80000000
-
 // ---- BLK_CTRL_WAKEUPMIX ----
 // Plain register-backed window (no ready bit), matching the oracle's
 // imxrt1180_add_rdy(s, "blk-ctrl-wakeupmix", 0x42420000, 0x1000). Previously
 // left unmapped here; mapping it removes a logged-and-unmapped latent gap at
 // no cost. @rt1180emulator confirmed their tree has no real behaviour either.
-blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000
-
 // ---- The two-gate M7 release (SRC + BLK_CTRL_S_AONMIX) ----
 // SRC_GENERAL_REG_BASE 0x44460000 (SCR @0x10), BLK_CTRL_S_AONMIX_BASE
 // 0x444F0000 (M7_CFG @0x80). [cmsis][brief]
 // Both were observed WRITTEN and unmapped before this was added: 0x44460010 and
 // 0x444F0080 appeared in the unmapped-access log while MCMGR_StartCore spun.
-src: Miscellaneous.IMXRT1180_SRC @ sysbus 0x44460000
+// ── the ONE thing that genuinely differs from m1 ─────────────────────────────
+// Renode rejects redeclaring an inherited entry (Error E02), but a name followed
+// by properties alone AMENDS it -- verified by loading exactly this form. So the
+// dual-core platform adds the secondary-core link without restating SRC's type
+// or address, which cannot then drift from m1's.
+src:
     secondaryCore: cpu1
-
-blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
-    gates: src
-    isBlkCtrl: true
