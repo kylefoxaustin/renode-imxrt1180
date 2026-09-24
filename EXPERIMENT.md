@@ -6144,3 +6144,52 @@ every value became `"0\n0"`, breaking each comparison and emitting extra records
 It now asserts `rows == inputs` and **exits 2 reporting no agreement figure** if
 they disagree — the check that turns a wall of plausible nonsense into a refusal.
 *A classifier that cannot count its own output cannot be trusted with a headline.*
+
+---
+
+# 🎤 SAI RX — MEASURED, and it corrects a claim I have been repeating
+
+The roadmap item read *"close the shared SAI RX gap on both sides, with a test
+that consumes received samples — so the direction is proven, not asserted."*
+Measured tonight with the stock SDK `sai/edma_record_playback` example, which
+does exactly that: records over SAI RX and plays back over TX.
+
+| model | console |
+|---|---|
+| QEMU | `MCUX SDK version: 2026.06.00` / `SAI example started!` — then stops |
+| Renode | `MCUX SDK version: 2026.06.00` / `SAI example started!` — then stops |
+
+**Byte-identical, and both stall at the same point.**
+
+## ⭐ SO "RENODE IS AHEAD ON SAI RX" WAS AN OVERSTATEMENT
+
+The claim, repeated in the README, the scorecard and to Kyle, was that this side
+models an RX path the reference does not — a *divergence in the faithful
+direction*. At the register level that is true: `RCSR/RCR1-5/RDR0-1/RFR0-1`
+exist here and the oracle's own `PERIPHERALS.md` says *"RX path not modelled
+(RFR reads empty)"*.
+
+But **no sample source feeds that path on either side.** Nothing calls
+`PushReceivedWord()`. From the firmware's point of view the two models are
+indistinguishable: the record example blocks waiting for data that never
+arrives, identically, on both.
+
+> ⭐ **A REGISTER THAT NOTHING DRIVES IS NOT A CAPABILITY.** The RX path is real
+> code with real semantics and zero observable consequence, which is precisely
+> the shape of thing this project keeps catching in other people's models — and
+> I had it in mine, and was quoting it as an advantage.
+>
+> It is the same error as the `led_blinky` row scoring RAN/RAN: I was comparing
+> *what exists* instead of *what the guest can observe*.
+
+## What closing it actually requires
+
+Not more RX registers. A **sample source** on each side — a codec model, a file
+backend, or a TX→RX loopback — plus a test whose assertion is the *received
+payload*, not a counter. Until then this is honestly stated as:
+
+**SAI RX: registers modelled here, absent there, observable difference NONE.**
+
+Deliberately not built tonight: adding a Renode-only sample source would widen
+the divergence while making the headline look better, which is the opposite of
+the goal. This one needs both sides, and the oracle's half is theirs to write.

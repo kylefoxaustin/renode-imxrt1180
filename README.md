@@ -196,9 +196,11 @@ Rules this model is held to, all of them paid for:
 
 ## Known limitations
 
-- **SAI RX** exists on this side but is exercised by no test in the shared corpus — the
-  reference models TX only, so this is a divergence in the faithful direction, recorded
-  rather than banked.
+- **SAI RX** is modelled here and absent in the reference — but **the observable
+  difference is none**. MEASURED with the stock SDK `sai/edma_record_playback`: both
+  models print the same two lines and stall at the same point, because no sample source
+  feeds the RX path on either side. A register that nothing drives is not a capability.
+  Closing it needs a source and a payload-consuming test on *both* sides.
 - **LPSPI chip-select** drops on `CONT`-clear here; the reference does not route CS to
   runtime-attached slaves, so its flash answers `RDID` once per boot. Measured on both
   sides; the reference side is the permissive one.
