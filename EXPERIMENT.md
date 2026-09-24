@@ -5938,3 +5938,59 @@ MEASURED effect of the platform fix alone, same binaries:
 Silent → talking. The tests remain a bad bar; **the bug they surfaced is real and
 affects the whole Zephyr study**, which is why the 83 rows now need re-running
 against the corrected platform rather than assuming 73/83 still holds.
+
+---
+
+# 📊 ZEPHYR DELTA RE-CUT — 90 targets on the corrected platform
+
+The platform fix (`zephyr.repl` re-parented onto `m1`, LPADC added) sits under
+**every** Zephyr row, so the 73/83 figure had to be re-measured rather than
+assumed. Re-cut over 90 targets: **51 identical, 35 DIFFER, 4 partial.**
+
+## No existing row regressed. All 10 movements are accounted for
+
+| movement | n | cause |
+|---|---:|---|
+| DIFFER → identical | 4 | genuine gain: `arm_thread_swap`, `kernel-poll`, `sched-schedule_api`, `lib-hash_map` |
+| identical → partial | 4 | all four `synchronization` variants — **free-running samples**, no terminal marker, line count = how long the run lasted. Counts exploded on BOTH sides (cm33 33→324 qemu / 55→151 renode), changing the prefix-overlap ratio the classifier uses |
+| partial → DIFFER | 1 | `cm7-samples-philosophers`, same free-runner effect (232→5259 / 1107→2145) |
+| identical → DIFFER | 1 | `cm7-tests-kernel-threads-thread_apis` — 249/249 lines, **6 differing, every one a duration** (0.102 vs 0.101 s); both `SUITE PASS 31/31`, both `PROJECT EXECUTION SUCCESSFUL` |
+
+⭐ Note which way the free-runner rows moved: they got **worse-looking while
+nothing changed**. A sample that prints until a guard stops it measures the
+guard, not the model. Those rows should never have been scored on line count.
+
+## The 7 new targets all agree
+
+| target | verdict | if DIFFER, what differs |
+|---|---|---|
+| `kernel-obj_tracking` | identical | — |
+| `kernel-pending` | identical | — |
+| `lib-mem_blocks` | identical | — |
+| `lib-onoff` | identical | — |
+| `lib-sprintf` | DIFFER | 6 lines, all durations |
+| `subsys-logging-log_msg` | DIFFER | 6 lines, all durations |
+| `lib-ringbuffer` | DIFFER | 64 lines; the non-duration ones are perf telemetry — `executed:1632` vs `1636`, `Average CPU load:13%` |
+
+All seven reach `PROJECT EXECUTION SUCCESSFUL` on **both** models. Each was
+gated on the reference *before* being pinned — the rule the driver-test round
+taught.
+
+## ⚠ AND I COMPARED THE WRONG FILES AGAIN, TWICE, INSIDE THIS ONE ANALYSIS
+
+1. **Diffed `.txt` instead of `.norm`.** The `.txt` capture is the harness's
+   **stdout** — Renode's startup banner and log lines against QEMU's bare serial
+   output. It reported "321 differing lines" for a row whose real difference is
+   **6**. The harness compares `.norm`, the raw UART captured via
+   `CreateFileBackend` on both sides, which is stated in its own comments.
+2. **`join` on unsorted input.** It printed `join: input is not in sorted order`
+   and produced a result anyway. The numbers happened to look plausible. Redone
+   with `LC_ALL=C sort -k1,1` and an assertion that the join returns exactly 83
+   rows before reading anything into it.
+
+That is the fourth and fifth time in this project that a comparison ran against
+inputs I had not validated. The pattern is stable enough to name: **the error is
+never in the reasoning about the diff — it is in reaching for the diff before
+checking what is on each side of it.** Every guard added today
+(`check_corpus_coverage.sh`, `check_platform_capability.sh`) exists because of
+this one habit, and both of them assert their inputs before reporting.
