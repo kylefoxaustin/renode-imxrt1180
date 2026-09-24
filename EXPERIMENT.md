@@ -5796,3 +5796,145 @@ asserted 55 == 55; M0 PASS; `netc-flood` and `netc-portfwd` byte-exact;
 > instances* — and a test suite cannot complain about an address nobody sends.
 > Bounding a gap requires enumerating the reference, not waiting for the subject
 > to fail.
+
+---
+
+# 🔁 THE SAME COMPARISON BUG, THREE TIMES — and the guard that ends it
+
+Chasing "how close are we to QEMU", I compared two files three times and got a
+confident wrong answer every time:
+
+| # | what I ran | what it claimed | truth |
+|---|---|---|---|
+| 1 | `diff -rq --include="*.cs"` | "0 files differ" | **42** files differ; `--include` is a **grep** option, `diff` ignores it |
+| 2 | `comm` on the two example columns | "32 examples uncovered" | 0; the columns spell it `A demo_apps/x` vs `demo_apps/x` |
+| 3 | `comm`, naming fixed | "1 uncovered (`pmsm_enc`)" | 0; our column can carry a trailing ` [long note]` |
+
+Each printed a number I then reported to Kyle. #1 nearly caused a build from the
+**wrong source tree**; #2 and #3 overstated a validation gap by 30× and 1×.
+
+> ⭐ **THE ROOT CAUSE IS NOT CARELESSNESS, IT IS A MISSING FAILURE MODE.** An
+> ad-hoc comparison between two files whose formats you have not validated
+> produces a wrong answer that is *indistinguishable from a right one*. There is
+> no error, no empty output, no exception — just a number.
+
+`scripts/check_corpus_coverage.sh` replaces the ad-hoc version, and its whole
+design is one idea this project already had and I failed to apply here:
+
+**MAKE THE CHECK ASK A QUESTION THE WRONG ANSWER FAILS.**
+
+It carries a **positive control** — examples that *must* appear on both sides
+(`hello_world`, `led_blinky`) plus a floor on each list's length. If a control is
+missing, the parsing is broken, and the script **exits 2 and makes no coverage
+claim at all** rather than reporting a confidently wrong one.
+
+Verified in both directions, because a guard never seen to fail is decoration:
+
+```
+$ ./scripts/check_corpus_coverage.sh
+oracle corpus examples : 30
+measured on this side  : 30
+COVERAGE COMPLETE — every oracle corpus example is measured on this side.
+
+$ ORACLE=<corpus with our spelling injected> ./scripts/check_corpus_coverage.sh
+BROKEN: control 'demo_apps/led_blinky' absent from the ORACLE list -- corpus parsing failed
+NO COVERAGE CLAIM MADE -- fix the comparison first.          rc=2
+```
+
+That second invocation reproduces failure mode #2 exactly — the one that invented
+32 missing rows — and the guard refuses instead of inventing.
+
+**And the actual answer: SDK corpus coverage is 30/30, complete.** `pmsm_enc` was
+never missing; it is a `value` row, VALUE-PROVEN on both sides. The remaining
+delta with QEMU is not corpus coverage and is no longer peripheral blocks — it is
+**breadth of firmware**, which is why the Zephyr corpus is the next lever.
+
+---
+
+# 🧪 THE ZEPHYR DRIVER TESTS WERE THE WRONG CORPUS — and the platform bug they found anyway
+
+Widening the Zephyr corpus, I built six of Zephyr's own `tests/drivers/*` on the
+grounds that they would exercise the peripheral instances just added. The
+instinct was right; the selection was not.
+
+## What the numbers looked like
+
+| target | qemu | renode (before platform fix) |
+|---|---:|---:|
+| `adc_api` | 10 | **0** |
+| `can-api` | **363** | **0** |
+| `counter_basic_api` | 123 | 13 |
+| `spi_loopback` | 15 | 43 |
+| `uart_basic_api` | 16 | 16 |
+| `wdt_basic_api` | 13 | 4 |
+
+`can: qemu=363 renode=0` reads like a damning FlexCAN gap. I was one step from
+chasing it.
+
+## What the consoles said
+
+```
+can-api          qemu: 52 pass 13 fail -> PROJECT EXECUTION FAILED
+counter_basic    qemu:  0 pass 11 fail -> PROJECT EXECUTION FAILED
+adc_api          qemu:  0 pass  1 fail -> never finishes
+spi_loopback     qemu:  0 pass  0 fail -> never finishes
+wdt_basic        qemu:  0 pass  0 fail -> never finishes
+uart_basic       qemu:  3 pass, then blocks on
+                       "Please send characters to serial console"
+```
+
+**The reference fails all six.** `tests/drivers/*` are HARDWARE-IN-THE-LOOP
+tests written for a real EVK: a CAN transceiver with a bus peer, a MOSI–MISO
+loopback jumper, analog input on the ADC pins, a real watchdog reset, and a
+human typing into the UART. Those 363 QEMU lines end in **FAILED**.
+
+> ⭐ **BEFORE CALLING A DIFFERENCE A GAP, CHECK WHETHER THE REFERENCE PASSES.**
+> A test the oracle itself fails cannot distinguish a good model from a bad one
+> — it can only generate work. The line-count column looked like signal and was
+> not; the verdict was three greps away and I read it only after treating the
+> counts as meaningful.
+
+The six are parked in `~/.cache/rt1180-artifacts/zephyr-not-a-bar/` with that
+evidence in a README, deliberately **outside** the corpus, so nobody later reads
+`renode=0 vs qemu=363` as a defect.
+
+## ⭐ BUT THEY FOUND A REAL BUG, IN THE HARNESS'S OWN PLATFORM
+
+Chasing why Renode printed *nothing* exposed something the block audit had
+missed entirely:
+
+**`mimxrt1189_zephyr.repl` inherited bare `mimxrt1189_cm33.repl`** — so it had
+**no LPADC, LPSPI, FlexCAN, GPT, LPTMR, RGPIO, RTWDOG or eDMA** — while the
+board's own devicetree enables `lpadc1`, `lpspi3`, `flexcan3`, `gpt2`, `lptmr1`
+and `edma3/4`. **Every one of the 83 Zephyr rows has been running against those
+holes.** And LPADC was worse: it existed only in the motor and cm7 platforms, so
+**no platform the SDK or Zephyr harnesses use had an ADC at all.**
+
+> ⭐⭐ **AND THE MORNING'S AUDIT CERTIFIED 22/22 FAMILIES COMPLETE WHILE THIS WAS
+> TRUE.** It counted instances across the **union of all platforms** — a
+> perfectly accurate answer to the wrong question. *A capability present
+> somewhere is not a capability present where the firmware looks.* The union is
+> what a maintainer believes; the platform under test is what the guest gets.
+
+Fixes, each verified rather than assumed:
+* `zephyr.repl` re-parented onto `m1.repl`. The seven entries it duplicated
+  (`trdc1-3`, `dcdc`, `blkctrl_wakeupmix`, `src`, `blkctrl_s_aonmix`) were
+  confirmed **byte-identical in type and base** before removal — Renode rejects
+  a redeclaration outright (`Error E02`).
+* **LPADC1/2 added to `m1.repl`**, base/IRQ SOURCED from `adc_cfg[]`
+  (`soc.c:1093`).
+* Confirmed present at runtime: `adc1 adc2 edma4 flexcan3 gpt2 lpspi3 lptmr1
+  rgpio4 rtwdog1`. M0 still passes.
+
+MEASURED effect of the platform fix alone, same binaries:
+
+| target | before | after |
+|---|---:|---:|
+| `adc_api` | 0 | **10** (= QEMU's count) |
+| `counter_basic_api` | 13 | **76** |
+| `spi_loopback` | 43 | 45 |
+| `wdt_basic_api` | 4 | 5 |
+
+Silent → talking. The tests remain a bad bar; **the bug they surfaced is real and
+affects the whole Zephyr study**, which is why the 83 rows now need re-running
+against the corrected platform rather than assuming 73/83 still holds.

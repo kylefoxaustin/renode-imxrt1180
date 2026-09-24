@@ -9,7 +9,19 @@
 // the image is placed by `sysbus LoadELF`, exactly as the boot ROM would have
 // left an XIP image in place, so no flash protocol is exercised. This models the
 // storage, NOT the FlexSPI/HyperBus devices -- a real scope limit, stated.
-using "mimxrt1189_cm33.repl"
+// ⭐ PARENTED ON m1, NOT cm33. The Zephyr harness runs on THIS platform, and it
+// inherited the bare cm33 base -- so it had no LPADC, LPSPI, FlexCAN, GPT, LPTMR,
+// RGPIO, RTWDOG or eDMA, while the board's own devicetree enables lpadc1, lpspi3,
+// flexcan3, gpt2, lptmr1 and edma3/4. Zephyr's driver tests therefore ran against
+// holes: adc_api and can/api printed NOTHING on Renode while QEMU produced 10 and
+// 363 lines.
+//
+// ⚠ THE BLOCK AUDIT MISSED THIS BECAUSE OF HOW IT ASKED THE QUESTION. It counted
+// instances across the UNION of all platforms and reported 22/22 families
+// complete -- true, and useless here, because no single platform had them and the
+// one the tests use had almost none. A capability present *somewhere* is not a
+// capability present *where the firmware looks*.
+using "mimxrt1189_m1.repl"
 
 // FlexSPI1 NOR XIP window. 0x28000000, 16 MiB, secure alias 0x38000000. [brief]
 // Zephyr links to the SECURE alias (measured: ELF LOAD at 0x38000000,
@@ -34,26 +46,12 @@ hyperram0: Memory.MappedMemory @ {
 // ---- Board-init blocks the SDK examples needed, which Zephyr's ztest suites
 // ---- also reach (hello_world did not, which is why they were missing here).
 // Same models/values as mimxrt1189_m1.repl and _m2.repl.
-trdc1: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x44270000
-    ncmMask: 0x04
 
-trdc2: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42460000
-    ncmMask: 0x1C
 
-trdc3: Miscellaneous.IMXRT1180_TRDC @ sysbus 0x42810000
-    ncmMask: 0x1B
 
-dcdc: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44520000
-    readyOffset: 0x0
-    readyMask: 0x80000000
 
-blkctrl_wakeupmix: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x42420000
 
-src: Miscellaneous.IMXRT1180_SRC @ sysbus 0x44460000
 
-blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
-    gates: src
-    isBlkCtrl: true
 
 // GPC_CPU_CTRL @ 0x44470000 (General Power Controller, per-CPU control) --
 // reached by Zephyr's ztest init; observed read/write at 0x4447080C.
@@ -61,3 +59,9 @@ blkctrl_s_aonmix: Miscellaneous.IMXRT1180_SRC @ sysbus 0x444F0000
 // guessed -- my first comment here said BLK_CTRL_NS_AONMIX and was wrong.
 // Register-backed window, no modelled behaviour.
 gpc_cpu_ctrl: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44470000
+
+// NOTE: trdc1-3, dcdc, blkctrl_wakeupmix, src and blkctrl_s_aonmix are NOT
+// declared here any more -- m1 already declares all seven at byte-identical
+// type+base, and Renode rejects a redeclaration outright (Error E02: "Variable
+// 'trdc1' was already declared"). Verified identical before deleting, so this
+// removes duplication and changes no behaviour.

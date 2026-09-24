@@ -554,3 +554,14 @@ lpspi5: SPI.IMXRT1180_LPSPI @ sysbus 0x42D50000
 
 lpspi6: SPI.IMXRT1180_LPSPI @ sysbus 0x42D60000
 
+
+// ── LPADC1..2 ────────────────────────────────────────────────────────────────
+// Base/IRQ SOURCED from hw/arm/imxrt1180_soc.c:1093 (adc_cfg[]). These lived
+// only in the motor and cm7 platforms, so every platform the SDK and Zephyr
+// harnesses use had no ADC at all -- Zephyr's adc_api test printed 0 lines on
+// Renode against QEMU's 10.
+adc1: Analog.IMXRT1180_LPADC @ sysbus 0x42600000
+    0 -> nvic@93
+
+adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
+    0 -> nvic@94
