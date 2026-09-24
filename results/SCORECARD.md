@@ -2015,6 +2015,38 @@ demands it.
 
 ---
 
+# 🏁 ACCEPTANCE TEST — both models on one wire, each verifying the other
+
+Kyle's bar from day one: *"holobench booting 1180 renode alongside qemu 1180 and
+not be able to tell a functional difference."*
+
+```
+node A (QEMU,   0x88B6): ENET-LAB3 PASS #1240 -- 0x88b9 VERIFIED, 0x88b5 VERIFIED
+node B (Renode, 0x88B9): ENET-LAB3 PASS  #161 -- 0x88b6 VERIFIED, 0x88b5 VERIFIED
+```
+
+One multicast segment, both emulators live at once, each having **content**-verified
+the other's 64-byte body — not merely seen it.
+
+> ⭐ **IT CANNOT PASS BY ACCIDENT.** Each node's REQUIRED peer set names the other
+> model's EtherType, and a node needs TWO verified peers to declare PASS, so
+> neither can get there through the synthetic third peer alone.
+
+**Mutation-proven**, exit codes captured without a pipe (the first attempt read
+`tail`'s status and reported rc=0 while printing both FAIL lines):
+
+| run | rc | |
+|---|---:|---|
+| control — one segment | **0** | HOLOBENCH PASS |
+| mutation — Renode node isolated | **1** | both FAIL, neither saw the other |
+
+The blocker was never either model. The lab-3 image **compiles in** its MAC and
+EtherType — MEASURED: `-nic mac=…:99` still announced `…:00`. Rebuilt both nodes
+from the oracle's own parameterised `build_node()` (their script untouched),
+giving the Renode node the free EtherType `0x88B9` and its own MAC.
+
+---
+
 # 💡 RGPIO — the row that was green because both sides were silent
 
 `demo_apps/led_blinky` scored **RAN / RAN → agree = YES** for as long as this

@@ -6068,3 +6068,79 @@ one of the models, so a failure can be localised.
 
 Artifacts pinned: `lab3-0x88B6-peerB.elf`, `lab3-0x88B9-peerA.elf`; manifest 121
 entries, 0 mismatches.
+
+---
+
+# 🔬 THE DELTA, CLASSIFIED BY RULE — 70/76, and the difference surface is TWO mechanisms
+
+`scripts/classify_zephyr_delta.sh` replaces hand-labelling with a rule applied to
+each row's own two captures. Over the 90-target re-cut:
+
+| class | n |
+|---|---:|
+| identical | 44 |
+| timing-only | 26 |
+| **CONTENT-DIFFER** | **5** |
+| TRUNCATED | 1 |
+| UNSCOREABLE | 14 |
+
+**Agreement: 70 of 76 scoreable targets.**
+
+## ⭐ FOURTEEN TARGETS ARE UNSCOREABLE, AND SAYING SO IS THE POINT
+
+`synchronization` and `philosophers` are **free-running samples**: they print
+until a guard stops them and reach a terminal marker on **neither** side
+(verified — 0 occurrences of `PROJECT EXECUTION` in both captures, every row).
+Their line count measures how long the run lasted. On 2026-09-23 all four
+`synchronization` rows moved `identical → partial` **while nothing about them
+changed** — the runs simply lasted longer (cm33 33→324 qemu, 55→151 renode).
+
+Counting such a row as agreement inflates the headline; counting it as
+disagreement invents a defect. It is counted as **neither**, and the denominator
+says so.
+
+## The five content differences are all inside PASSING tests
+
+Every one reaches `PROJECT EXECUTION SUCCESSFUL` on **both** models. They reduce
+to two mechanisms and two nondeterministic values:
+
+**Mechanism A — an invalid user pointer is refused at a different layer** (seen in
+`kernel-device` and `kernel-threads-thread_apis`):
+
+```
+qemu   : E: ***** BUS FAULT *****  Precise data bus error  BFAR Address: 0xfffffff0
+renode : E: syscall user_copy failed check: Memory region 0xfffffff0 read access denied
+```
+
+Both refuse the access and both tests pass; QEMU faults at the bus, Renode
+catches it in the MPU/syscall check first. A real divergence, recorded rather
+than explained away — which layer wins the race on silicon is the open question.
+
+**Mechanism B — the fault dump's stacked frame** (`cm7 arm_interrupt`, the row
+that originally found tlib defect #11):
+
+```
+qemu   : r14/lr: 0x00000000   xpsr: 0x00000000   pc: 0x00000000
+renode : r14/lr: 0x000016c9   xpsr: 0x01000000   pc: 0x000016d8
+```
+
+⚠ Renode's side looks the more physical one: a fault dump with `pc = 0` and
+`xpsr = 0` is implausible for a taken fault, since the stacked frame should carry
+the faulting context. **Not asserted** — deciding it needs the RM, and the test
+passes either way.
+
+**Not mechanisms:** `mem_protect-stackprot` differs in a **stack canary**
+(`0xe375c474` vs `0xc6d8fa74` — random by design) and `timer-timer_monotonic` in
+a measured delta within tolerance (`240023322` vs `240011756`, expected
+`240000000`, both 100%).
+
+## ⚠ THE CLASSIFIER'S FIRST RUN WAS NONSENSE, AND ITS OWN OUTPUT SAID SO
+
+It reported **218 targets classified from a 90-row input**, with a blank class on
+128 of them. Cause: `grep -c … || echo 0`. `grep -c` **prints a count and exits
+non-zero when that count is zero**, so `|| echo 0` appended a *second* line;
+every value became `"0\n0"`, breaking each comparison and emitting extra records.
+
+It now asserts `rows == inputs` and **exits 2 reporting no agreement figure** if
+they disagree — the check that turns a wall of plausible nonsense into a refusal.
+*A classifier that cannot count its own output cannot be trusted with a headline.*

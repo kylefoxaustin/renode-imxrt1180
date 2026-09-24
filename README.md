@@ -50,6 +50,7 @@ the QEMU model's external test corpus — **the same binaries, not ports**.
 | **Dual-core (the M2 rung)** | **8 / 8** |
 | **Audio** | **5 / 5** — six SAI operating points byte-exact |
 | **NETC switch** | **7 / 7** — including `netc-lab3`, run on a live multicast segment through the QEMU model's **own** `wire-check.py`, every assertion unchanged |
+| **Both models, one wire** | **PASS** — 1180-renode and 1180-qemu on one segment simultaneously, each verifying the other's beacon body |
 
 ## Motor-control frontier: the M7 spins a virtual PMSM
 
@@ -216,12 +217,17 @@ Rules this model is held to, all of them paid for:
 
 ## Roadmap
 
-1. **Holobench** — the seam is **built and green**: one
-   `spawn_node(group, port, mac)`, QEMU argv one branch,
-   `scripts/holobench-node.sh` the other, with the QEMU path re-verified
-   unchanged after every step. `netc-lab3` passes on Renode through that
-   harness. Next is both models as peers on **one** segment, each a node the
-   other verifies — Kyle's acceptance test.
+1. ~~**Holobench**~~ — **done.** Both models run on **one multicast segment at the
+   same time**, each content-verifying the other's frames:
+
+   ```
+   node A (QEMU,   0x88B6): ENET-LAB3 PASS -- 0x88b9 VERIFIED, 0x88b5 VERIFIED
+   node B (Renode, 0x88B9): ENET-LAB3 PASS -- 0x88b6 VERIFIED, 0x88b5 VERIFIED
+   ```
+
+   Each node's *required* peer set names the other model's EtherType, so neither
+   can reach PASS without the other. Mutation-proven: isolate the Renode node on
+   its own group and the run goes red. `scripts/run_holobench_sidebyside.sh`.
 2. **Upstream the `tlib` patches** — four mutation-proven Cortex-M defects, none
    RT1180-specific.
 3. **Close the shared SAI RX gap on both sides**, with a test that consumes received
