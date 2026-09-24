@@ -5994,3 +5994,77 @@ never in the reasoning about the diff — it is in reaching for the diff before
 checking what is on each side of it.** Every guard added today
 (`check_corpus_coverage.sh`, `check_platform_capability.sh`) exists because of
 this one habit, and both of them assert their inputs before reporting.
+
+---
+
+# 🏁 THE ACCEPTANCE TEST PASSES — both models on one wire, each verifying the other
+
+Kyle's bar, set at the outset: *"My test will be holobench booting 1180 renode
+alongside qemu 1180 and not be able to tell a functional difference."*
+
+```
+node A (QEMU,   0x88B6): ENET-LAB3 PASS #1240 -- 0x88b9 VERIFIED, 0x88b5 VERIFIED
+node B (Renode, 0x88B9): ENET-LAB3 PASS  #161 -- 0x88b6 VERIFIED, 0x88b5 VERIFIED
+HOLOBENCH PASS - both models on one segment, each VERIFIED the other's frames
+```
+
+Both emulators on one multicast segment **at the same time**, each having
+**content-verified** the other's beacons. `VERIFIED`, not presence-only: the
+peer's 64-byte body was read and checked field by field.
+
+## What actually blocked this, and why `-nic mac=` was not the answer
+
+The lab-3 image **compiles in** its MAC and EtherType. MEASURED: QEMU launched
+with `-nic ...,mac=54:27:8d:00:00:99` still produced a node announcing
+`mac=54:27:8d:00:00:00` — the NIC model's address is not the one the firmware
+stamps into frames. Two RT1180 nodes from one image are two stations with one
+identity, and the segment cannot tell them apart.
+
+@rt1180emulator's own build script carries this lesson already, about its
+self-test stand-ins: *"THREE STATIONS WITH ONE MAC ... Give each node its own."*
+
+The fix was not to patch a binary. `build_node()` in `tools/netc-eth-lab3.sh`
+takes EtherType **and** MAC as parameters — `ME=$1 PA=$2 PB=$3 OUT=$4
+MAC=${5:-...}`. Only the `--build` *mode* hardcodes `0x88B6`. So the function was
+extracted verbatim into a standalone builder (their script untouched, nothing
+else in it executed) and run twice:
+
+| node | EtherType | required peers | MAC | runs on |
+|---|---|---|---|---|
+| A | `0x88B6` | `0x88B9` + `0x88B5` | `…:00` | **QEMU** |
+| B | `0x88B9` | `0x88B6` + `0x88B5` | `…:09` | **Renode** |
+
+`0x88B9` is free in the fleet's allocated block `0x88B5..0x88BF`
+(`B5` mcx, `B6` rt1180, `B7` imx95, `B8` imx91).
+
+## ⭐ THE TEST CANNOT PASS BY ACCIDENT
+
+**Each node's required peer set names the other model's EtherType.** Neither can
+reach PASS by talking to itself, and neither can reach it via the synthetic third
+peer alone — a node needs TWO verified peers. So "both printed PASS" *means* the
+Renode node verified the QEMU node's frames and the QEMU node verified the
+Renode node's. The third peer (`0x88B5`) is synthetic and deliberately **not**
+one of the models, so a failure can be localised.
+
+**Mutation-proven both directions**, exit codes captured without a pipe:
+
+| run | rc | result |
+|---|---:|---|
+| control — both on one segment | **0** | HOLOBENCH PASS |
+| mutation — Renode node moved to its own group | **1** | both FAIL lines, neither node saw the other |
+
+## Two instrument errors on the way, both caught by reading from the subject
+
+1. **A byte-count probe said node B contained no `0x88B9`** and looked like a
+   failed build. It was blind: ARM encodes a 16-bit immediate split across the
+   instruction, so the EtherType is not a literal in the image. What settled it
+   was booting each node and reading the identity **it announces**:
+   `ethertype=0x88B9 ... mac=54:27:8d:00:00:09`. *A finding read from the subject
+   survives a bug in the observer.*
+2. **The first mutation run reported `rc=0` while printing both FAIL lines.**
+   The script was piped through `tail`, so `$?` was **tail's** status, not the
+   harness's. Re-run without the pipe: mutation `rc=1`, control `rc=0`. A verdict
+   read through a pipeline is a verdict about the pipeline.
+
+Artifacts pinned: `lab3-0x88B6-peerB.elf`, `lab3-0x88B9-peerA.elf`; manifest 121
+entries, 0 mismatches.
