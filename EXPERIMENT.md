@@ -6193,3 +6193,56 @@ payload*, not a counter. Until then this is honestly stated as:
 Deliberately not built tonight: adding a Renode-only sample source would widen
 the divergence while making the headline look better, which is the opposite of
 the goal. This one needs both sides, and the oracle's half is theirs to write.
+
+---
+
+# 🔎 MECHANISM A, RESOLVED: it is an MPU/TT query divergence, and it points at QEMU
+
+The `CONTENT-DIFFER` row `cm33-tests-kernel-device` (and `thread_apis`) showed:
+
+```
+qemu   : E: ***** BUS FAULT *****  Precise data bus error  BFAR Address: 0x0
+renode : E: syscall user_copy failed check: Memory region 0 (size 1) read access denied
+```
+
+Both tests PASS on both models, so it was filed as "a divergence, which layer
+wins is an open question". Chasing it to the source resolves it.
+
+The test is `test_null_dynamic_name`: it deliberately hands a syscall a NULL
+pointer. Zephyr guards syscall buffers with `arch_buffer_validate()` →
+`arm_core_mpu_buffer_validate()` → `mpu_buffer_validate()`, which on ARMv8-M has
+two variants (`arch/arm/core/mpu/arm_mpu_v8_internal.h`):
+
+* **`!CONFIG_MPU_GAP_FILLING`** (:424) — a pure **software walk** of the MPU
+  region registers: `is_enabled_region()`, `is_in_region()`,
+  `is_user_accessible_region()`.
+* **`CONFIG_MPU_GAP_FILLING=y`** (:471) — **`arm_cmse_addr_range_read_ok()`**,
+  i.e. the ARMv8-M **TT (Test Target)** instruction, plus `arm_cmse_mpu_region_get()`.
+
+> ⭐ **NEITHER VARIANT TOUCHES MEMORY.** Both only *ask* the MPU/SAU what the
+> permissions are. So this was never a difference about how a fault is taken —
+> it is a difference in **what the two models answer when asked whether address
+> 0 is readable from unprivileged code.**
+
+| model | answer to the query | consequence |
+|---|---|---|
+| Renode | not user-readable | guard rejects the syscall; **no access is made** |
+| QEMU | user-readable | guard passes; the code then reads address 0 and **bus-faults** |
+
+**Renode's answer is the one that matches the intent of the guard.** Address 0 is
+covered by no Zephyr user-mode MPU region on this part (the M33's code TCM is at
+`0x0FFE0000`; `0x00000000` is the *M7's* ITCM base, not the M33's). A syscall
+guard that says "yes, userspace may read NULL" has failed at its job, and the
+hardware fault afterwards is the backstop firing, not the design working.
+
+⚠ **Not asserted as a QEMU defect — reported as a finding.** Deciding it needs
+their MPU/TT implementation and the config the `device` test actually compiled
+with, both of which are theirs. What is established here: the divergence is an
+**MPU/TT permission-query** difference, not a fault-delivery difference, and it
+is therefore worth a look on their side.
+
+> ⭐ **THIS IS THE TWO-MODEL METHOD PAYING OUT IN THE OTHER DIRECTION.** Four
+> Cortex-M defects were found in Renode's core by running the oracle's corpus
+> against it. This is the first candidate found in the *oracle* by running the
+> same corpus against both — which is exactly why the second model exists:
+> *each one's failures bound the truth from a different side.*
