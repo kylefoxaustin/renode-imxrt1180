@@ -6388,6 +6388,12 @@ The `read_ok` arm is `0x3800b5d6`:
 - `0x004d000b`: MRVALID(16)=1, bit18=1, MREGION=11 → PASS
 - `0x00400000`: MRVALID(16)=0, bit18=0, MREGION=0 → DENY
 
+Corroborated afterwards against the authoritative `cmse_address_info_t` bitfield in
+`arm_cmse.h` (little-endian): `[7:0] mpu_region`, `[16] mpu_region_valid`,
+**`[18] read_ok`**, `[19] readwrite_ok`, `[22] secure`. The binary-derived decode and
+the header agree — `0x004d000b` is region 11, valid, read_ok, readwrite_ok, secure;
+`0x00400000` is secure only, with no valid region and not readable.
+
 The `flags` argument `r2=0xc` also decodes from the binary's own jump tables:
 `r2 & 0x14 = 4` → tbb byte `0x48` → target `0x3800b5b2` (**the `ttt`, i.e.
 UNPRIVILEGED, block**); `(r2 & ~0x14) - 1 = 7` → jump-table[7] = `0x3800b5d7`
@@ -6567,16 +6573,75 @@ non-faulting. **Silicon returns a bus error here, so QEMU is right and Renode is
 My `ttt(0)` result is correct *and irrelevant* — that code should never have been
 reached.
 
-## The obvious knob is not the fix
+## ⚠ CORRECTION: the knob IS the right mechanism
+
+I first wrote that `ThrowException` is *"not a guest bus fault — a host-side exception
+that silently killed the CPU."* **Wrong, and retracted.** I inferred it from the
+silence instead of reading the path or measuring the CPU.
 
 `sysbus UnhandledAccessBehaviour` accepts `Report | ReportIfTagged | ReportIfNotTagged
-| DoNotReport | ThrowException`. `ThrowException` is **not** a guest bus fault: it is a
-host-side exception that silently killed the CPU on the first unmapped access during
-boot — the run completed its full 90 s with **zero** console output. Renode 1.17 has no
-built-in unmapped-to-BusFault mode via that property.
+| DoNotReport | ThrowException`, and `ThrowException` produces a genuine precise guest
+BusFault:
 
-Note the failure shape: a wrong setting here produces *silence*, not an error. Without
-checking for guest output the run looks like "it just didn't print much".
+```
+SystemBus.ReportNonExistingRead  -> throw BusAccessException(AddressError)
+TranslationCPU (catches it)      -> HandleBusAccessError(addr, width, op, err)
+CortexM (override)               -> tlibRaisePreciseBusFault(addr)
+tlib arch_exports.c              -> v7m.bus_fault_address = addr
+                                    BFSR |= BFARVALID | PRECISERR
+                                    raise EXCP_BUS_FAULT
+```
+
+That is the same thing QEMU produces. And the CPU was never killed — MEASURED:
+`IsHalted = False`, `ExecutedInstructions = 0x2A993` (174,483), `PC = 0x3801e344`,
+which `nm` places inside `arch_system_halt`:
+```
+3801e336 <arch_system_halt>:
+3801e344:  b.n 3801e344      <- spinning here
+```
+The guest took a real BusFault, judged it fatal, and **halted itself** before console
+init. *"No console output" was the guest halting, not the host aborting.* Reading
+silence as a dead emulator is the same error as the hooks that threw quietly — third
+time this session. **Silence is never evidence; measure the state.**
+
+## The actual difference, and the oracle's design
+
+`imxrt1180_soc.c:479`:
+```c
+create_unimplemented_device("imxrt1180.periph", IMXRT1180_PERIPH_BASE,
+                            IMXRT1180_PERIPH_SIZE);   /* 0x40000000, 0x20000000 */
+/* "Real models are mapped AFTER the catch-all so they override it by
+    memory-region priority." */
+```
+
+So:
+
+| access | QEMU | Renode (today) |
+|---|---|---|
+| inside `0x4000_0000..0x5FFF_FFFF` | catch-all returns 0, no fault | returns 0, no fault |
+| outside it (address `0`) | **BUS FAULT** | returns 0, no fault |
+
+The two models agree inside the window *by accident* and disagree outside it.
+
+Census of every unmapped access in the cm33 device run — **9 accesses, 5 distinct
+addresses**:
+```
+0x0                                            <- the deliberate NULL probe, MUST fault
+0x443C0020 0x443C0024 0x443C0094 0x443C0098    <- IOMUXC_AON, inside the window
+```
+
+## The obstacle, stated before attempting
+
+Renode's `ThrowException` check happens **before** the tag lookup in
+`ReportNonExistingRead`, so `sysbus Tag` cannot serve as the catch-all — tagged ranges
+fault too. And Renode errors on overlapping registration (`E39`), so a low-priority
+blanket region under the real peripherals is not expressible the way memory-region
+priority allows.
+
+The fix is therefore most likely a small Renode patch making `ThrowException` respect
+tags, giving Renode an exact equivalent of `create_unimplemented_device`. That is
+upstreamable, and preferable to special-casing address 0 — which would game the test
+rather than fix the model. **Not claimed closed until built and measured.**
 
 ## Scope before claiming a fix
 
