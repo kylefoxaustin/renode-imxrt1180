@@ -6510,3 +6510,83 @@ undefined)**.
 0 bytes. A diff against it would have reported the entire Renode console as
 "added lines" and could easily have been read as a total divergence. The live data
 is `results/console-delta/`. Deleting the dead directory rather than leaving a trap.
+
+---
+
+# ⭐ ADDRESS-0 ROOT CAUSE: Renode does not fault on unmapped accesses (2026-09-25)
+
+**This is a Renode-side defect, and it is mine to carry.** It also supersedes the
+framing of the whole two-day dig: the answer was never in the MPU, the TT, privilege,
+or a branch inside the guard.
+
+## The caller dereferences before it validates, deliberately
+
+`k_usermode_string_copy` @ `0x3801b9fc`:
+```
+3801ba0a:  bl  3800fca4 <arch_user_string_nlen>   ; DEREF FIRST
+3801ba0e:  ldr r7,[sp,#4]                          ; err
+3801ba10:  cbnz r7, 3801ba58                       ; faulted -> return 14, NEVER validates
+...
+3801ba3a:  bl  3801b93c <k_usermode_from_copy>     ; the TT validation lives HERE, SECOND
+```
+
+`arch_user_string_nlen` @ `0x3800fca4` is a *deliberate* fault-tolerant probe — the
+symbol names say so:
+```
+3800fcae <z_arm_user_string_nlen_fault_start>:
+3800fcae:  ldrb r5, [r0, r3]      ; r0 = NULL. THIS is the deref.
+3800fcb0 <z_arm_user_string_nlen_fault_end>:
+3800fcb0:  cbz  r5, strlen_done   ; byte == 0 -> length 0, err cleared
+```
+Zephyr *wants* this to fault and catches it with the fixup range
+`fault_start..fault_end`.
+
+## One instruction explains both traces
+
+| model | `ldrb r5,[0]` | consequence |
+|---|---|---|
+| QEMU | **BUS FAULT**, BFAR=0 | fixup → `err=-1` → return 14 → `k_usermode_from_copy` never runs → **no `ttt(0)`** |
+| Renode | **returns 0, no fault** | NULL looks like an **empty string** → `err=0` → falls through → `ttt(0)` → deny |
+
+The oracle measured no `ttt(0)` in QEMU's entire run; I measured `ttt(0)` returning
+`0x00400000`. Both fall out of that single difference. Nothing else is needed.
+
+## Measured
+
+```
+(monitor) sysbus ReadByte 0x0
+[WARNING] sysbus: ReadByte from non existing peripheral at 0x0.
+0x00
+```
+
+Address 0 is unmapped on **both** models — we were both right about the map. The
+difference is the *response*: QEMU raises a bus error, Renode logs a warning and
+returns zero. Renode's default `sysbus UnhandledAccessBehaviour` is `Report`, i.e.
+non-faulting. **Silicon returns a bus error here, so QEMU is right and Renode is wrong.**
+
+My `ttt(0)` result is correct *and irrelevant* — that code should never have been
+reached.
+
+## The obvious knob is not the fix
+
+`sysbus UnhandledAccessBehaviour` accepts `Report | ReportIfTagged | ReportIfNotTagged
+| DoNotReport | ThrowException`. `ThrowException` is **not** a guest bus fault: it is a
+host-side exception that silently killed the CPU on the first unmapped access during
+boot — the run completed its full 90 s with **zero** console output. Renode 1.17 has no
+built-in unmapped-to-BusFault mode via that property.
+
+Note the failure shape: a wrong setting here produces *silence*, not an error. Without
+checking for guest output the run looks like "it just didn't print much".
+
+## Scope before claiming a fix
+
+- Very likely the **same cause** for `cm33-tests-kernel-threads-thread_apis` at
+  `0xfffffff0` (same shape, also unmapped). One fix should close both remaining rows.
+- A general "unmapped faults" mode would expose every remaining hole in my peripheral
+  map that the non-faulting default currently papers over — the cm7 console alone shows
+  unmapped hits on RTWDOG (`0x442D0000`, `0x442E0000`, `0x42490000`, `0x424A0000`,
+  `0x424B0000`) and BLK_CTRL (`0x444F0080`, `0x44470010`). So this is **not** a one-line
+  flag flip, and I will not claim it as closed until it is measured.
+- tlib clearly *can* raise guest faults (cm7 `arm_interrupt` takes a genuine MPU
+  stacking fault), so the mechanism exists; the question is routing an unmapped sysbus
+  access to it.
