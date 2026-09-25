@@ -6246,3 +6246,83 @@ is therefore worth a look on their side.
 > against it. This is the first candidate found in the *oracle* by running the
 > same corpus against both — which is exactly why the second model exists:
 > *each one's failures bound the truth from a different side.*
+
+---
+
+# 🐞 RENODE DEFECT #18 — the MPU alias registers are mis-indexed, and a region can vanish
+
+Found while auditing tlib's MPU write path for the address-0 dig. It is **not**
+that dig's cause (proven below), but it is a real defect on its own merits.
+
+## The bug
+
+ARMv8-M: `MPU_RBAR_A1/A2/A3` and `MPU_RLAR_A1/A2/A3` address the region
+**`(RNR & ~3) | offset`** — the aliases reach the other three regions of the same
+aligned group of four. tlib computed:
+
+```c
+index = cpu->pmsav8[secure].rnr;
+if(region_offset > 0) index = (index << 2) + region_offset;
+```
+
+Those agree **only while RNR < 4**, which is why it survived. At `RNR=4` ARM says
+region 5; tlib computes 17.
+
+**Why that is fatal rather than cosmetic:** `MAX_MPU_REGIONS` is 256 so nothing
+faults — but `pmsav8_get_region` scans only `0..number_of_mpu_regions-1`
+(`helper.c:3194`). A region stored at index ≥ that bound is **written, retained,
+and permanently invisible to matching.** Any guest programming regions through
+the aliases with RNR ≥ 4 silently loses them.
+
+The same wrong formula is on **both** the write and read paths
+(`arch_exports.c:905/916` set, `:965/976` get) — which is precisely why a region
+walk cannot reveal it: the getter mis-indexes in the same direction as the setter.
+
+It is in the guest's real path, not just Renode's inspection API:
+guest store → Renode NVIC `HandleMPUWriteV8` (`NVIC.cs:1970`) →
+`cpu.PmsaV8RbarAlias1` → `tlib_set_pmsav8_rbar(val, 1, secure)`.
+
+## Proved at the API level — no firmware, no Zephyr boot
+
+```
+cpu PmsaV8Rnr 4
+cpu PmsaV8RbarAlias1 0xDEADBE01
+cpu PmsaV8Rnr 5  ; cpu PmsaV8Rbar   ->  0x00000000   ARM says it lands here. It did not.
+cpu PmsaV8Rnr 17 ; cpu PmsaV8Rbar   ->  0xDEADBE01   tlib put it past the 16 scanned.
+```
+
+## Mutation-proven, swapping only the `.so`
+
+| `translate-arm-m-le.so` | region 5 | slot 17 |
+|---|---|---|
+| `834f9fbc` stock | `0x00000000` | `0xDEADBE01` |
+| `c0580759` patched | **`0xDEADBE01`** | **`0x00000000`** |
+
+ABI gate before install: **2604 symbols both sides, 0 missing, 0 extra**, built
+through the `Cores` wrapper. Old library kept as `.pre-aliasfix` so the proof
+stays re-runnable. Regression on the patched core: **M0 PASS, 45 PASS / 0 FAIL,
+no row changed verdict, coverage 55 == 55.**
+
+## ⭐ AND IT IS NOT THE ADDRESS-0 CAUSE — TESTED BEFORE CLAIMED
+
+This was a *very* attractive hypothesis: the cross-model dig had concluded, by a
+chain neither side could break, that tlib must have **dropped a region write**,
+and here is a mechanism that drops region writes silently. Under the pattern of
+the previous day I would have posted it as the answer.
+
+Instead: dumped MPU slots 0..47 at the guard. **Populated 0..11 only; 16..47 all
+zero.** Nothing stranded. Zephyr programmed via `RNR`+`RBAR` directly, the bug
+never fired on this binary, and the address-0 divergence remains open.
+
+> ⭐ **A MECHANISM THAT COULD EXPLAIN THE SYMPTOM IS NOT THE CAUSE OF IT.** The
+> fit was excellent — right failure shape, right subsystem, right direction — and
+> it was still wrong. The cheap check that settled it was dumping the slots the
+> mechanism would have written to.
+
+## Numbering
+
+Filed as **#18**, not #17. I briefly claimed "#17 = tlib denies when the MPU is
+disabled" on the fleet bus and **retracted it** — the premise (MPU disabled at the
+guard) came from reading `MPUEnabled`, which reports `cp15.c1_sys`, a register the
+Cortex-M33 does not use. Reusing the number would collide with a withdrawn claim
+in the shared record, so #17 stays withdrawn.

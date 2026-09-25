@@ -1,0 +1,98 @@
+--- a/arch/arm/arch_exports.c
++++ b/arch/arm/arch_exports.c
+@@ -902,7 +902,22 @@
+     guard_pmsav8(true);
+     uint32_t index = cpu->pmsav8[secure].rnr;
+     if(region_offset > 0) {
+-        index = (index << 2) + region_offset;
++        /* [RT1180 PATCH -- Renode MPU alias-index defect]
++         * ARMv8-M: MPU_RBAR_A1/A2/A3 and MPU_RLAR_A1/A2/A3 address the region
++         * (RNR & ~3) | offset -- the aliases reach the other three regions of the
++         * SAME aligned group of four. tlib computed (RNR << 2) + offset, which
++         * agrees ONLY while RNR < 4 and is why this survived.
++         *
++         * MEASURED before the fix (Renode monitor, 16-region platform):
++         *     PmsaV8Rnr = 4; PmsaV8RbarAlias1 = 0xDEADBE01
++         *     region 5  -> 0x00000000   (ARM says the write lands here)
++         *     slot  17  -> 0xDEADBE01   (tlib put it here)
++         *
++         * MAX_MPU_REGIONS is 256 so nothing faults, but pmsav8_get_region scans
++         * only 0..number_of_mpu_regions-1 (helper.c), so a region stored at index
++         * >= that bound is INVISIBLE TO MATCHING: a silently dropped region for
++         * any guest that programs through the aliases with RNR >= 4. */
++        index = (index & ~3u) | region_offset;
+     }
+     cpu->pmsav8[secure].rbar[index] = value;
+ }
+@@ -913,7 +928,22 @@
+     guard_pmsav8(true);
+     uint32_t index = cpu->pmsav8[secure].rnr;
+     if(region_offset > 0) {
+-        index = (index << 2) + region_offset;
++        /* [RT1180 PATCH -- Renode MPU alias-index defect]
++         * ARMv8-M: MPU_RBAR_A1/A2/A3 and MPU_RLAR_A1/A2/A3 address the region
++         * (RNR & ~3) | offset -- the aliases reach the other three regions of the
++         * SAME aligned group of four. tlib computed (RNR << 2) + offset, which
++         * agrees ONLY while RNR < 4 and is why this survived.
++         *
++         * MEASURED before the fix (Renode monitor, 16-region platform):
++         *     PmsaV8Rnr = 4; PmsaV8RbarAlias1 = 0xDEADBE01
++         *     region 5  -> 0x00000000   (ARM says the write lands here)
++         *     slot  17  -> 0xDEADBE01   (tlib put it here)
++         *
++         * MAX_MPU_REGIONS is 256 so nothing faults, but pmsav8_get_region scans
++         * only 0..number_of_mpu_regions-1 (helper.c), so a region stored at index
++         * >= that bound is INVISIBLE TO MATCHING: a silently dropped region for
++         * any guest that programs through the aliases with RNR >= 4. */
++        index = (index & ~3u) | region_offset;
+     }
+ 
+     //  XN is enforced in 0xE0000000-0xFFFFFFFF space; ARMv8-M Manual: Rules VCTC and KDJG.
+@@ -962,7 +992,22 @@
+     guard_pmsav8(false);
+     uint32_t index = cpu->pmsav8[secure].rnr;
+     if(region_offset > 0) {
+-        index = (index << 2) + region_offset;
++        /* [RT1180 PATCH -- Renode MPU alias-index defect]
++         * ARMv8-M: MPU_RBAR_A1/A2/A3 and MPU_RLAR_A1/A2/A3 address the region
++         * (RNR & ~3) | offset -- the aliases reach the other three regions of the
++         * SAME aligned group of four. tlib computed (RNR << 2) + offset, which
++         * agrees ONLY while RNR < 4 and is why this survived.
++         *
++         * MEASURED before the fix (Renode monitor, 16-region platform):
++         *     PmsaV8Rnr = 4; PmsaV8RbarAlias1 = 0xDEADBE01
++         *     region 5  -> 0x00000000   (ARM says the write lands here)
++         *     slot  17  -> 0xDEADBE01   (tlib put it here)
++         *
++         * MAX_MPU_REGIONS is 256 so nothing faults, but pmsav8_get_region scans
++         * only 0..number_of_mpu_regions-1 (helper.c), so a region stored at index
++         * >= that bound is INVISIBLE TO MATCHING: a silently dropped region for
++         * any guest that programs through the aliases with RNR >= 4. */
++        index = (index & ~3u) | region_offset;
+     }
+     return cpu->pmsav8[secure].rbar[index];
+ }
+@@ -973,7 +1018,22 @@
+     guard_pmsav8(false);
+     uint32_t index = cpu->pmsav8[secure].rnr;
+     if(region_offset > 0) {
+-        index = (index << 2) + region_offset;
++        /* [RT1180 PATCH -- Renode MPU alias-index defect]
++         * ARMv8-M: MPU_RBAR_A1/A2/A3 and MPU_RLAR_A1/A2/A3 address the region
++         * (RNR & ~3) | offset -- the aliases reach the other three regions of the
++         * SAME aligned group of four. tlib computed (RNR << 2) + offset, which
++         * agrees ONLY while RNR < 4 and is why this survived.
++         *
++         * MEASURED before the fix (Renode monitor, 16-region platform):
++         *     PmsaV8Rnr = 4; PmsaV8RbarAlias1 = 0xDEADBE01
++         *     region 5  -> 0x00000000   (ARM says the write lands here)
++         *     slot  17  -> 0xDEADBE01   (tlib put it here)
++         *
++         * MAX_MPU_REGIONS is 256 so nothing faults, but pmsav8_get_region scans
++         * only 0..number_of_mpu_regions-1 (helper.c), so a region stored at index
++         * >= that bound is INVISIBLE TO MATCHING: a silently dropped region for
++         * any guest that programs through the aliases with RNR >= 4. */
++        index = (index & ~3u) | region_offset;
+     }
+     return cpu->pmsav8[secure].rlar[index];
+ }
