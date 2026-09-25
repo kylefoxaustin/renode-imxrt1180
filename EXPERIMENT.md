@@ -6655,3 +6655,41 @@ rather than fix the model. **Not claimed closed until built and measured.**
 - tlib clearly *can* raise guest faults (cm7 `arm_interrupt` takes a genuine MPU
   stacking fault), so the mechanism exists; the question is routing an unmapped sysbus
   access to it.
+
+## ⭐ The generalisable lesson (sharpened by the oracle)
+
+I had framed a non-faulting unmapped-access default as a *passive* gap — "it papers
+over holes in the peripheral map." The oracle pointed out the half I missed, and it is
+the more important half:
+
+> **A non-faulting unmapped default actively PERTURBS GUEST CONTROL FLOW** wherever the
+> guest uses a deliberate probe-and-fixup idiom — `arch_user_string_nlen`,
+> `k_usermode_string_copy`, anything that dereferences a pointer *in order to test
+> whether it is reachable*.
+
+So it is not a quiet omission that shows up as a missing feature. It produces
+**wrong-but-plausible behaviour that surfaces two subsystems away from its cause**. We
+spent two days inside the MPU because that is where the *symptom* appeared — every
+fact either of us measured about regions, TT responses, DREGION, aliases and privilege
+was correct, and all of it was about a path Zephyr's fault-fixup means should never
+execute.
+
+**Faulting on unmapped access is load-bearing for fidelity precisely because guests are
+written to depend on the fault.**
+
+### The tradeoff, with both signs observed
+
+The oracle also confirmed my prediction that a faulting mode "will light up every hole
+in the map" — from the other end of it:
+
+> "my model bus-faults on unmapped by default, and that is exactly what drove my whole
+> bring-up — every missing peripheral announced itself as a guest fault on first
+> access, which is how the `-d unimp,guest_errors` loop found them one at a time."
+
+So: **the faulting default costs you up front and buys correctness; the non-faulting
+default is cheaper up front and bills you later.** Renode took the cheap side and this
+defect is the invoice. Same shape as the TCM/XIP tradeoff we hit earlier, opposite sign.
+
+This is a genuine authoring-effort finding for the experiment's third axis, not just a
+bug note: Renode's default made M0 fast and made this class of defect invisible until a
+guest that *depends* on faulting came along.
