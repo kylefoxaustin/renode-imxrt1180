@@ -6326,3 +6326,113 @@ disabled" on the fleet bus and **retracted it** — the premise (MPU disabled at
 guard) came from reading `MPUEnabled`, which reports `cp15.c1_sys`, a register the
 Cortex-M33 does not use. Reusing the number would collide with a withdrawn claim
 in the shared record, so #17 stays withdrawn.
+
+---
+
+## Address-0 divergence — RESOLVED on the Renode side (2026-09-25)
+
+**Status:** Renode's behaviour is fully explained and appears architecturally
+correct. The open question has moved to the QEMU side.
+
+### What I had wrong (three retractions)
+
+1. **"TT never executes on Renode."** Measured on the wrong instruction. I hooked
+   `0x3801d900`, which objdump places inside `arm_cmse_addr_read_ok` (the
+   *singular*-address function). The *range* variant reaches `ttt` at
+   `0x3800b5b6` / `0x3800b5be` inside `cmse_check_address_range`. Retracted.
+2. **"tlib's MPU_TYPE.DREGION reads 0"** (the other team's hypothesis, which I had
+   not yet falsified). MEASURED: `MPU_TYPE` reads back `0x00001000` → DREGION = 16,
+   observed 700x in a live run. Dead.
+3. **The 16-iteration software walk is not running** — only 4 MPU region-register
+   reads occur in the entire run (vs 716 `RNR` writes). The TT path is the one in use.
+
+Two separate instruments returned a silent zero today: `cpu.R0` (not a valid
+accessor) and `execfile()` inside a hook. Both threw inside the hook with no output.
+**A Renode hook swallows Python exceptions silently.** Every hook now carries a
+positive control — a plain `DebugLog` of a literal — so "hook didn't fire" is
+distinguishable from "hook fired, body threw". `hasattr` beats try/except here
+because it cannot throw at all:
+
+```
+cpu AddHook <addr> "cpu.DebugLog(\"PROBE attrs=\" + str([a for a in (...) if hasattr(cpu,a)]))"
+```
+Valid accessors on the ARM CPU object: `GetRegister`, `GetRegisterUnsafe`, `R`, `PC`, `SP`.
+
+### The measurement
+
+ELF `cm33-tests-kernel-device.elf`, sha256 `ec27f94f3f7cbb99f967308cd3d4878199344aa4235c12cb472d49a65dd8d8b8`.
+Hooks at `0x3800b5b6` (before `ttt`, reading r0/r1/r2) and `0x3800b5ba` (after, reading r3).
+
+| # | r0 (addr) | r1 (last) | TT_RESP | verdict |
+|---|---|---|---|---|
+| 1 | `0x140020e8` | `0x140020fa` | `0x004d000b` | permit |
+| 2 | `0x14002118` | `0x14002124` | `0x004d000b` | permit |
+| 3 | **`0x00000000`** | `0x00000000` | **`0x00400000`** | **DENY** |
+
+`ttt` fires 3x; `0x3800b5be` fires only 1x — benign, not a short-circuit. The
+preceding `cmp.w ip, #31` skips the second TT when the range fits inside one
+32-byte granule (`bls.n 3800b556`).
+
+### Decoded from the binary, not from the spec
+
+The `read_ok` arm is `0x3800b5d6`:
+```
+3800b5d6:  lsls r3, r3, #13   ; N := bit 18 of TT_RESP
+3800b5d8:  bpl  3800b53c      ; bit18 clear -> movs r0,#0 -> return false
+```
+- `0x004d000b`: MRVALID(16)=1, bit18=1, MREGION=11 → PASS
+- `0x00400000`: MRVALID(16)=0, bit18=0, MREGION=0 → DENY
+
+The `flags` argument `r2=0xc` also decodes from the binary's own jump tables:
+`r2 & 0x14 = 4` → tbb byte `0x48` → target `0x3800b5b2` (**the `ttt`, i.e.
+UNPRIVILEGED, block**); `(r2 & ~0x14) - 1 = 7` → jump-table[7] = `0x3800b5d7`
+(**the readable check**). So Zephyr explicitly requested an *unprivileged
+readability* check — it believes it is validating a user thread's buffer.
+
+Causality is adjacent in the log, not inferred:
+```
+line 116  TTARG  r0=0x0 r1=0x0 r2=0xc
+line 118  TTRESP r3=0x400000
+line 119  E: syscall user_copy failed check: Memory region 0 (size 1) read access denied
+```
+`r1=0` is consistent with `addr+size-1 = 0+1-1 = 0`, matching "size 1".
+
+### Why Renode looks right
+
+`ttt` is the unprivileged variant. `PRIVDEFENA`'s default map applies to privileged
+accesses only, so it cannot make address 0 readable to an unprivileged access. No
+enabled region covers address 0 (all 11 measured earlier). `MRVALID=0, R=0` is
+therefore the correct answer and the deny is correct.
+
+That flips the burden: QEMU reports a BUS FAULT with `BFAR=0`, which means a
+dereference actually happened, which means **their guard permitted**. Combined with
+their measurement of zero TT queries on address 0, the leading hypothesis is that
+this is **not an MPU divergence at all** but a privilege/control-flow divergence
+upstream of the MPU — the guard never runs on their side. Asked them for (a) their
+ELF sha256, (b) a positive control on their TT counter (does it see the two
+`0x1400xxxx` queries?), (c) `CONTROL.nPRIV` at syscall entry.
+
+### Correction, same session: no privilege divergence
+
+I floated "unprivileged on Renode, privileged on QEMU" and then measured it, which
+killed it. Hook at `0x3800b5b6` reading `cpu.Control`, all three TT sites:
+
+```
+r0=0x140020e8  CONTROL=0x2
+r0=0x14002118  CONTROL=0x2
+r0=0x00000000  CONTROL=0x2
+```
+
+`CONTROL=0x2` → SPSEL=1 (process stack), **nPRIV=0 → the CPU is PRIVILEGED** at the TT.
+
+That is the correct picture, not an anomaly: the kernel runs privileged inside the
+syscall and deliberately asks the *unprivileged* question — "would the user thread
+have been allowed to read this?" — which is exactly what `ttt` + `r2=0xc` encodes.
+`CONTROL.nPRIV` therefore cannot discriminate between the two models; the discriminator
+is whether QEMU executes this `ttt` on address 0 at all, and what it returns.
+
+**Renode hazard:** `cpu.GetRegister(16)` SIGABRTs the whole process (out-of-range index
+into native tlib). `cpu.Control` is the safe accessor for CONTROL. Note the contrast in
+failure modes — an invalid *Python attribute* (`cpu.R0`) throws silently inside the hook
+and yields nothing, while an invalid *register index* aborts the process loudly. The
+silent one is far more dangerous: it looks exactly like "the code never ran".
