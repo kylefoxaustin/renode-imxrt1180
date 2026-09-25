@@ -1,0 +1,22 @@
+# Adjudications for CONTENT-DIFFER rows in the Zephyr cross-model delta.
+#
+# READ THIS BEFORE ADDING A ROW.
+# An adjudication is a JUDGEMENT, not a measurement. The raw agreement figure is
+# always reported alongside the adjudicated one, and a row here only ever moves a
+# target out of CONTENT-DIFFER -- never into agreement without an external reason.
+#
+# sig = sha256[:16] of the non-duration diff between the two .norm captures.
+# It BINDS the excuse to the exact difference that was examined. If the diff
+# changes at all, the signature stops matching and the adjudication is DROPPED
+# (reported as STALE), so a future regression can never silently inherit an old
+# excuse. Re-examine and re-sign deliberately, or it does not count.
+#
+# verdict: UNDEFINED = architecture does not define the value
+#          RANDOM    = value is randomised by design
+#          TIMING    = a measured quantity the test itself scores as passing
+# A row whose verdict is REAL is NOT listed here; it stays CONTENT-DIFFER.
+#
+target	sig	verdict	justification
+cm7-tests-arch-arm-arm_interrupt	a314e7e5fb362612	UNDEFINED	Stacking-error ESF. The test parks PSP 0x10 above the stack base and fires an IRQ (arm_interrupt.c:421-448), so exception-entry stacking faults INTO the MPU guard and the frame is never written. Zephyr prints "Stacking error (context area might be not valid)" immediately above these three lines -- the firmware itself declares them invalid. Renode's values are stale residue inside _arm_interrupt_test_arm_interrupt_wrapper (0x159c-0x1738); QEMU reads zero. Both PASS with reason K_ERR_STACK_CHK_FAIL.
+cm33-tests-kernel-mem_protect-stackprot	6447fd3fee3abc84	RANDOM	Differing word is the stack canary in r2 (0xe375c474 vs 0xc6d8fa74). Zephyr randomises __stack_chk_guard at boot; two emulators AGREEING on it would be the suspicious result.
+cm33-tests-kernel-timer-timer_monotonic	2c9783e1a0b402c5	TIMING	delta 240023322 vs 240011756 against expected 240000000. The test scores both at 100% and PASSes. A measured elapsed-time quantity; the classifier's duration filter misses it only because the label is "delta:" rather than "duration".

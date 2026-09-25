@@ -6124,9 +6124,14 @@ qemu   : r14/lr: 0x00000000   xpsr: 0x00000000   pc: 0x00000000
 renode : r14/lr: 0x000016c9   xpsr: 0x01000000   pc: 0x000016d8
 ```
 
-⚠ Renode's side looks the more physical one: a fault dump with `pc = 0` and
+> ❌ **SUPERSEDED — this paragraph is wrong. See "Mechanism B — RESOLVED" below.**
+> The frame is architecturally UNKNOWN (the *stacking itself* faults into the MPU
+> guard), and Renode's "populated" values are stale stack residue, not a modelled
+> frame. Neither model is more physical. Reclassified UNSCOREABLE.
+
+⚠ ~~Renode's side looks the more physical one: a fault dump with `pc = 0` and
 `xpsr = 0` is implausible for a taken fault, since the stacked frame should carry
-the faulting context. **Not asserted** — deciding it needs the RM, and the test
+the faulting context.~~ **Not asserted** — deciding it needs the RM, and the test
 passes either way.
 
 **Not mechanisms:** `mem_protect-stackprot` differs in a **stack canary**
@@ -6436,3 +6441,72 @@ into native tlib). `cpu.Control` is the safe accessor for CONTROL. Note the cont
 failure modes — an invalid *Python attribute* (`cpu.R0`) throws silently inside the hook
 and yields nothing, while an invalid *register index* aborts the process loudly. The
 silent one is far more dangerous: it looks exactly like "the code never ran".
+
+---
+
+## Mechanism B — RESOLVED: architecturally UNKNOWN, not a fidelity gap (2026-09-25)
+
+Earlier note: *"Renode's side looks the more physical one: a fault dump with pc = 0
+and xpsr = 0 is implausible for a taken fault."* **That judgment was wrong** — it was
+a plausible-sounding inference with no mechanism behind it. Resolved properly:
+
+### First, the comparison was narrower than I had recorded
+
+`cm7 arm_interrupt` emits **five** ESF dumps. Four are byte-identical between models.
+In particular the `test_arm_esf_collection` dump — the one the test actually
+*validates* — is identical on both, `pc = 0x0000f602` included:
+
+```
+E: r0/a1:  0x00000000  r1/a2:  0x00000001  r2/a3:  0x00000002
+E: r3/a4:  0x00000003 r12/ip:  0x0000000c r14/lr:  0x0000000f
+E:  xpsr:  0x01000000
+E: Faulting instruction address (r15/pc): 0x0000f602
+```
+
+Those match the pattern `set_regs_with_known_pattern()` seeds (`r0=0,r1=1,r2=2,r3=3,
+lr=15`). Both models get the checked case exactly right.
+
+### The one that differs is the deliberately-broken stacking
+
+The fifth dump is `ZEPHYR FATAL ERROR 2: Stack overflow`, provoked by
+`arm_interrupt.c:421-448`:
+
+```c
+expected_reason = K_ERR_STACK_CHK_FAIL;
+__disable_irq();
+irq_controller_set_pending(i);
+__set_PSP(_current->stack_info.start + 0x10);   /* almost at the bottom */
+__enable_irq();
+```
+
+PSP is parked 0x10 above the stack base and an interrupt is fired. The 32-byte
+exception frame descends to `stack_start - 0x10` — **into the MPU guard** — so the
+*stacking itself* faults (MSTKERR; cm7 is ARMv7-M, so `CONFIG_HW_STACK_PROTECTION`
+is an MPU guard region, not PSPLIM). The handler then reads an ESF **that was never
+written**. Its contents are architecturally UNKNOWN.
+
+| model | reads back |
+|---|---|
+| QEMU | `lr=0`, `xpsr=0`, `pc=0` — the denied read returns zero |
+| Renode | `lr=0x000016c9`, `xpsr=0x01000000`, `pc=0x000016d8` — the read returns backing RAM |
+
+Renode's values are **stale stack residue, not a modelled frame**: `nm` puts both
+inside `_arm_interrupt_test_arm_interrupt_wrapper` (`0x159c`..`0x1738`), the very
+function that provoked the fault, and `0x16c9` is odd — a Thumb return address, i.e.
+a genuine leftover pushed by that function earlier.
+
+### Verdict
+
+**Not a fidelity gap, and not scoreable.** The value is UNKNOWN after a failed
+stacking; the two models differ only in what a read of the guard region returns
+(zero vs. backing store). Zephyr asserts only `expected_reason`, which is
+`K_ERR_STACK_CHK_FAIL` on both — `Caught system error -- reason 2`, `PASS` on both.
+Reclassified from "divergence, unexplained" to **UNSCOREABLE (architecturally
+undefined)**.
+
+### Also found: a dead results directory
+
+`results/console-cm7delta/` is a **failed capture** — every `qemu_*.txt` in it is
+0 bytes. A diff against it would have reported the entire Renode console as
+"added lines" and could easily have been read as a total divergence. The live data
+is `results/console-delta/`. Deleting the dead directory rather than leaving a trap.

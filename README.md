@@ -46,7 +46,7 @@ the QEMU model's external test corpus — **the same binaries, not ports**.
 |---|---|
 | **SDK console corpus vs QEMU** | **30 / 30 examples agree, differ 0** (31 rows) — both columns MEASURED on one box, same bytes handed to both emulators in the same run |
 | **Oracle value tests** | **45 / 55 PASS, 0 FAIL, 0 unexplained** — the other 10 ship their own harness and are driven through it |
-| **Zephyr console delta** | **70 / 76 scoreable** agree (44 byte-identical + 26 differing only in durations/counters), over 90 targets. 14 are **unscoreable** — free-running samples that never terminate, whose line count measures the run guard, not the model; they are counted neither way |
+| **Zephyr console delta** | **70 / 76 scoreable** agree as measured (44 byte-identical + 26 differing only in durations/counters), over 90 targets. **73 / 76 after adjudication** — 3 further rows differ only in values that are architecturally undefined, randomised by design, or a measured elapsed time the test itself scores 100%; each is signed off in [`results/zephyr-delta-adjudications.tsv`](results/zephyr-delta-adjudications.tsv) and bound to a hash of the exact diff, so a regression cannot inherit the excuse. The **2 remaining differences are one mechanism**, not two: Renode's syscall/MPU guard denies where QEMU takes a bus fault. 14 targets are **unscoreable** — free-running samples that never terminate, whose line count measures the run guard, not the model; they are counted neither way |
 | **Dual-core (the M2 rung)** | **8 / 8** |
 | **Audio** | **5 / 5** — six SAI operating points byte-exact |
 | **NETC switch** | **7 / 7** — including `netc-lab3`, run on a live multicast segment through the QEMU model's **own** `wire-check.py`, every assertion unchanged |

@@ -74,5 +74,44 @@ agree=$(awk -F'\t' 'NR>1 && ($5=="identical" || $5=="timing-only")' "$OUT" | wc 
 scoreable=$(awk -F'\t' 'NR>1 && $5!="UNSCOREABLE" && $5!="NO-CAPTURE"' "$OUT" | wc -l)
 echo
 echo "AGREEMENT: $agree of $scoreable scoreable targets (unscoreable free-runners excluded, not counted either way)"
-echo "Content differences remaining:"
+echo "Content differences remaining (RAW):"
 awk -F'\t' 'NR>1 && $5=="CONTENT-DIFFER"{printf "  %-46s %s non-clock lines\n", $1, $7}' "$OUT"
+
+# ── ADJUDICATION ──────────────────────────────────────────────────────────────
+# A judgement layer, deliberately kept SEPARATE from the measurement above. The
+# raw figure is printed first and always. An adjudication only ever applies when
+# the sha256[:16] of the row's non-duration diff still matches the signature that
+# was signed off; if the diff moved, the excuse is reported STALE and DROPPED, so
+# a regression cannot inherit it.
+ADJ="$(dirname "$OUT")/zephyr-delta-adjudications.tsv"
+if [ -r "$ADJ" ]; then
+    adjudicated=0; stale=0; real=0; APPLIED=$(mktemp)
+    echo
+    echo "Adjudication (judgement, not measurement) -- $ADJ:"
+    while IFS=$'\t' read -r t sig verdict _just; do
+        case "$t" in ''|'#'*|target) continue;; esac
+        awk -F'\t' -v t="$t" 'NR>1 && $1==t && $5=="CONTENT-DIFFER"{f=1} END{exit !f}' "$OUT" || continue
+        cur=$(diff "$CON/qemu_$t.norm" "$CON/renode_$t.norm" 2>/dev/null | grep '^[<>]' \
+              | grep -vE "seconds|duration|executed:|CPU load|cycles|ticks" | sha256sum | cut -c1-16)
+        if [ "$cur" = "$sig" ]; then
+            printf '  %-46s %-9s applied\n' "$t" "$verdict"; adjudicated=$((adjudicated+1))
+            printf '%s\n' "$t" >> "$APPLIED"
+        else
+            printf '  %-46s %-9s STALE (sig %s != %s) -- DROPPED\n' "$t" "$verdict" "$cur" "$sig"
+            stale=$((stale+1))
+        fi
+    done < "$ADJ"
+    real=$(awk -F'\t' 'NR>1 && $5=="CONTENT-DIFFER"' "$OUT" | wc -l)
+    real=$((real - adjudicated))
+    echo
+    echo "ADJUDICATED AGREEMENT: $((agree + adjudicated)) of $scoreable scoreable targets"
+    echo "  ($agree measured-identical/timing-only + $adjudicated adjudicated; $real unexplained content differences)"
+    [ "$stale" -gt 0 ] && echo "  ⚠ $stale adjudication(s) STALE and dropped -- re-examine before re-signing."
+    echo "Unexplained content differences:"
+    while IFS=$'\t' read -r t _ql _rl _raw cls _d nd; do
+        [ "$cls" = "CONTENT-DIFFER" ] || continue
+        grep -qxF "$t" "$APPLIED" && continue
+        printf '  %-46s %s non-clock lines\n' "$t" "$nd"
+    done < <(awk 'NR>1' "$OUT")
+    rm -f "$APPLIED"
+fi
