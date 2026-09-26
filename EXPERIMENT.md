@@ -6693,3 +6693,283 @@ defect is the invoice. Same shape as the TCM/XIP tradeoff we hit earlier, opposi
 This is a genuine authoring-effort finding for the experiment's third axis, not just a
 bug note: Renode's default made M0 fast and made this class of defect invisible until a
 guest that *depends* on faulting came along.
+
+---
+
+# 🔧 THE FIX: a two-tier bus, ported from the oracle (2026-09-25)
+
+No Renode patch was needed. The shipped `Infrastructure.dll` here is my defect-#16
+build from `066a7f13`, and that commit is no longer fetchable (the superproject clone
+that pinned it is gone; `git fetch origin 066a7f13` → `couldn't find remote ref`). So
+patching `SystemBus.cs` to make `ThrowException` respect tags — my first plan — would
+have meant rebuilding the managed core from a source tree I can no longer obtain.
+
+The oracle's own design turned out not to need it. `rt1180emulator` spelled out the
+*why* behind their two tiers, and it is expressible in stock Renode:
+
+> the peripheral bus is decoded on silicon, so an access to an unmodelled register in a
+> real peripheral's space should NOT fault the guest — faulting on every unmodelled
+> register would make bring-up impossible. OUTSIDE the window, nothing is mapped →
+> BusFault, because those are genuinely-unmapped memory, which silicon bus-errors.
+
+| tier | mechanism (QEMU) | mechanism (Renode, now) |
+|---|---|---|
+| decoded peripheral aperture, unmodelled | `create_unimplemented_device` | `IMXRT1180_UnimplementedBlock` per aperture |
+| genuinely unmapped memory | nothing mapped → BusFault | `sysbus UnhandledAccessBehaviour ThrowException` |
+
+## What was actually missing
+
+The stale Sep-23 census listed 20 blocks, but RTWDOG1–5 had been added to `m1` since.
+Re-checked against the **current** platforms, exactly five apertures were absent, all
+named from `MIMXRT1189_cm33_COMMON.h` (none inferred from a neighbour — the `adc2`
+comment records what that costs):
+
+```
+0x42A10000  IOMUXC_BASE
+0x443C0000  IOMUXC_AON_BASE
+0x44290000  SYS_CTR_CONTROL_BASE
+0x442A0000  SYS_CTR_COMPARE_BASE
+0x442B0000  SYS_CTR_READ_BASE
+```
+
+`IMXRT1180_UnimplementedBlock` reads 0 and **discards** writes — matching the oracle
+rather than improving on it. A register file that echoed writes back would diverge from
+QEMU the moment a driver read one back.
+
+After registering them, `cm33-tests-kernel-device` had **exactly one** unmapped access
+left in the whole run: address `0`. Which is the one that must fault.
+
+## Measured, with faulting on
+
+```
+START - test_null_dynamic_name
+E: ***** BUS FAULT *****
+E:   Precise data bus error
+E:   BFAR Address: 0x0
+...
+PROJECT EXECUTION SUCCESSFUL
+```
+
+Byte-identical to the oracle's capture, and the suite still completes.
+
+## Prediction, recorded BEFORE the sweep
+
+All three non-agreeing rows share this one cause, so the sweep should close all three
+and take the corpus from **73/76 to 76/76**:
+
+| row | class | address | why it should close |
+|---|---|---|---|
+| `cm33-tests-kernel-device` | CONTENT-DIFFER | `0x0` | verified above |
+| `cm33-tests-kernel-threads-thread_apis` | CONTENT-DIFFER | `0xfffffff0` | same probe idiom, also unmapped |
+| `cm33-tests-arch-arm-arm_mpu_wt` | **TRUNCATED** | `0x30500000` | QEMU bus-faults and halts at 24 lines; Renode ran on to 50 |
+
+That last one was not part of the original two. It surfaced only because the census
+made me check *every* outside-window address rather than the one I was chasing — QEMU
+maps only `0x303C0000` (M7 TCM) in the whole `0x3xxx_xxxx` range, so `0x30500000` and
+`0x30001000` bus-error there too.
+
+Writing the prediction down first so the sweep can falsify it. Full sweep re-cut into
+`results/console-faulting/` + `zephyr-delta-faulting.tsv` rather than over the published
+baseline, per the script's own override contract.
+
+## ⚠ A fourth instance of the same error, in the space of one hour
+
+I killed the first verification sweep believing `cm33-hello_world` had started
+boot-faulting under the new setting. **It had not.** The evidence I "saw":
+
+- no guest output in my extraction
+- `PC = 0x3800f5d4`, 170,601 instructions — read as "spinning after a fault"
+
+Both were wrong, and the second one I had the tools to check immediately:
+
+```
+$ arm-none-eabi-nm -n $ELF | awk ...
+  stuck in: 3800f5c2 T arch_cpu_idle
+```
+
+`arch_cpu_idle` is the **idle loop**. The guest had booted, printed, and gone idle —
+the healthiest possible state. And the missing output was **my own command**:
+
+```
+grep -i 'hello' hw-fault.log hw-census.log | head -3
+```
+
+`head -3` cut the output *before* the fault-run's line. Re-grepping without it:
+
+```
+[INFO] lpuart1: *** Booting Zephyr OS build v4.4.0-5250-gc2d0717c4697 ***
+[INFO] lpuart1: Hello World! mimxrt1180_evk/mimxrt1189/cm33
+```
+
+A census with `Report` confirmed it independently: **zero** unmapped accesses in the
+whole `hello_world` run, so the setting could not have changed its behaviour at all.
+
+The sweep was simply *slow*: `emulation RunFor "90"` simulates 90 virtual seconds per
+target whether the guest is busy or idle, so 90 targets take hours. Slowness read as
+breakage.
+
+> **That is the FOURTH time in this session that an absence produced by my own
+> instrument was read as a fact about the system** — `cpu.R0`, `execfile`,
+> "ThrowException killed the CPU", and now `head -3`. Three were silent throws; this
+> one was a truncating pipe. The pattern is not "Renode hides errors" — it is that
+> **I keep treating my own tooling as transparent.** M49 (never read a verdict through
+> a pipe that can truncate it) exists for exactly this and I still did it.
+
+Cheap rule that would have caught all four: **before believing a negative, run the
+positive control in the same command.** Here that was one extra line — grep for a
+string that MUST be present — and it would have failed loudly instead of quietly.
+
+## Corpus disposition of these findings (fleet rules, 2026-09-25)
+
+Sent to `claude-connect`; allocated by `qualcomm`, who owns numbering:
+
+- **M79 — the non-faulting-default rule. ACCEPTED as a new class.** *"A default that
+  suppresses an error the subject is written to DEPEND on does not degrade gracefully —
+  it relocates the symptom."* Kept verbatim with it: *"correct measurements, correct
+  reasoning, wrong subsystem, two days"*, and `rt1180emulator`'s corroborating datum
+  that their model faults by default and that is what drove their bring-up — **both
+  signs of the same tradeoff, observed.**
+- **"Silence is never evidence" — NOT a new rule. It is already M48**, and also Rule 1
+  of the fleet CLAUDE.md. Amended instead of duplicated ("a duplicate rule is worse than
+  a missing one, because the two drift"). The amendment extends M48 from *"never RECORD
+  a zero"* to **an instrument that produces NOTHING** — a hook that silently swallows its
+  own exception returns no result to have a control on, so the control must prove the
+  tool *emits at all*. The `hasattr` corollary is attached: prefer a construct that
+  cannot throw over one whose failure is indistinguishable from an empty answer.
+- **M77** (an instrument's name is not its semantics — the `MPUEnabled` case) and **M78**
+  have already landed in the canonical corpus.
+
+Worth recording that I proposed two rules and one was a duplicate I had not recognised.
+I had been *using* M48 all session and still wrote a second version of it, because I met
+it through three new symptoms rather than through its text.
+
+## The fix found a hole the moment it was switched on — exactly as predicted
+
+`rt1180emulator`: *"it'll light up any peripheral-window holes that were silently
+returning 0 … the faulting default costs you a bring-up pass and buys correctness."*
+It cost one, immediately.
+
+With faulting enabled, `cm33-tests-lib-lockfree` **truncated to 26 lines against QEMU's
+61**, halting on:
+
+```
+E: r3/a4:  0xe0001000 ...
+E: >>> ZEPHYR FATAL ERROR 0: CPU exception on CPU 0
+E: Current thread: 0x14000568 (test_mpsc_throughput)
+```
+
+`0xE0001000`/`0xE0001004` are **DWT_CTRL / DWT_CYCCNT** — `test_mpsc_throughput` reads
+the cycle counter.
+
+### ⭐ And the block was already "handled". By a Tag. Which had silently stopped working.
+
+`cm33.repl` carried, since bring-up:
+
+```
+sysbus:
+    init:
+        Tag <0xE0001000 0xE0001FFF> "DWT"
+```
+
+**Renode checks `UnhandledAccessBehaviour` BEFORE the tag lookup** in
+`SystemBus.ReportNonExistingRead`, so under `ThrowException` a tagged range faults
+exactly like an untagged one. *A tag documents intent; it does not register anything.*
+This is the same obstacle I had already identified in the abstract — and I still shipped
+a change that broke against it, because I checked the **tag count** (one, in the whole
+project) without checking what that one tag was load-bearing for.
+
+Replaced with a real registration:
+```
+dwt: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0xE0001000
+    size: 0x1000
+```
+Verified: `lockfree` back to **61 lines vs QEMU's 61**, differing only in durations.
+
+The Private Peripheral Bus is **decoded** on a Cortex-M33 exactly as the peripheral
+window is, so this is tier one, not an exception to the design. Base is architectural
+(ARMv8-M PPB: ITM `0xE0000000`, DWT `0xE0001000`, FPB `0xE0002000`, SCS `0xE000E000`).
+ITM and FPB are deliberately **not** registered — nothing in the corpus touches them,
+and registering unevidenced blocks is how a model grows fiction.
+
+### Why the mid-sweep platform change does not invalidate the sweep
+
+Registering a region can only turn a fault into a non-fault, and QEMU does not fault on
+DWT (its capture is 61 lines). So the change can only move Renode *toward* QEMU: a row
+that agreed before still agrees, and a row that disagreed may now agree. Rows swept
+before the change therefore need re-running only if they *disagree* — which is the set
+worth re-running anyway.
+
+---
+
+# ✅ RESULT: 75 / 75 scoreable targets agree, 0 unexplained content differences
+
+Full 90-target re-cut with the two-tier bus in place, into
+`results/console-faulting/` + `zephyr-delta-faulting.tsv` (the published baseline left
+untouched, per the sweep script's own override contract).
+
+| | baseline | with the fix |
+|---|---|---|
+| RAW agreement | 70 / 76 | **72 / 75** |
+| ADJUDICATED | 73 / 76 | **75 / 75** |
+| unexplained content differences | 2 | **0** |
+| `TRUNCATED` | 1 | **0** |
+
+Class changes, all four of them:
+
+```
+cm33-tests-kernel-device                 CONTENT-DIFFER -> identical
+cm33-tests-kernel-threads-thread_apis    CONTENT-DIFFER -> timing-only
+cm33-tests-kernel-early_sleep            timing-only    -> identical
+cm33-tests-arch-arm-arm_mpu_wt           TRUNCATED      -> UNSCOREABLE
+```
+
+The three adjudications all still match their bound diff-hashes, so none went stale.
+
+## ⚠ THE DENOMINATOR MOVED, AND THAT FLATTERS THE RATIO — so state it plainly
+
+Scoreable went **76 → 75**. I earlier reported `arm_mpu_wt` as closing "identical"; its
+raw verdict *is* identical, but its CLASS is `UNSCOREABLE`, and it left the denominator.
+A shrinking denominator is exactly how a ratio gets improved without improving anything,
+so the reason matters:
+
+```
+qemu    PROJECT EXECUTION lines: 0   last line: E: Halting system
+renode  PROJECT EXECUTION lines: 0   last line: E: Halting system
+byte-identical, 24 lines each
+```
+
+Both models now bus-fault at `0x30500000` and halt **the same way**, so neither emits a
+completion marker and the classifier — correctly — refuses to score a run that never
+reported a verdict. It left the scoreable set *by converging with the oracle*: it was
+**50 lines vs QEMU's 24** before, and is byte-identical now. That is the strongest
+possible outcome for that row and the weakest possible thing to do to the headline
+number. Both facts belong in the record.
+
+So the fair summary is not the ratio alone: **all three previously-disagreeing rows
+resolved**, one of them into a byte-identical-but-unscoreable state.
+
+## What the fix cost, honestly
+
+Two holes the non-faulting default had been hiding, both found *by* switching it on:
+
+1. A `Tag <0xE0001000 0xE0001FFF> "DWT"` that had silently stopped working — Renode
+   checks `UnhandledAccessBehaviour` before the tag lookup, so a tag does not survive
+   `ThrowException`. Replaced with a real registration.
+2. `cm7.repl` is standalone (no `using`) and inherited none of the new blocks, while
+   faulting had just been enabled on its script. It needed RTWDOG1–5, IOMUXC,
+   IOMUXC_AON, GPC_CPU_CTRL and BLK_CTRL_S_AONMIX.
+
+Exactly the bring-up pass `rt1180emulator` said the faulting default would cost, and
+exactly the correctness it said it would buy.
+
+## And a bug in the audit layer itself
+
+`ADJ="$(dirname "$OUT")/…"` resolved the adjudication list relative to `OUT`. Overriding
+`OUT` is what this project does *on purpose* to keep a re-cut off the published baseline
+— so the re-cut **silently skipped the entire adjudication block and printed nothing**.
+A judgement layer that can quietly not run is worse than none. Now resolved off `ROOT`,
+with a loud warning when the file is missing, mutation-proven:
+
+```
+⚠ NO ADJUDICATION FILE at /nonexistent/nope.tsv -- reporting the RAW figure only.
+```

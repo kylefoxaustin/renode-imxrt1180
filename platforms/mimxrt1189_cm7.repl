@@ -312,3 +312,52 @@ adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
 //   PWM1_0..3 = 24..27, PWM1_FAULT = 23. [cmsis]
 // GPIO map: 0-3 per-submodule compare/reload IRQ, 4-7 output trigger (-> XBAR),
 // 8-11 per-submodule value-DMA request.
+
+// ── DWT: decoded PPB space, unmodelled ───────────────────────────────────────
+// Same rationale as cm33.repl: the PPB is decoded, so an unmodelled PPB register
+// reads 0 rather than bus-faulting. Registered (not Tagged) because Renode checks
+// UnhandledAccessBehaviour before the tag lookup, so a tag does not survive
+// ThrowException. Base is architectural (ARMv8-M PPB map).
+dwt: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0xE0001000
+    size: 0x1000
+
+// ── BLOCKS THE CM7 CORPUS TOUCHES THAT THIS PLATFORM NEVER DECLARED ──────────
+//
+// cm7.repl is standalone (no `using`), so nothing it needs arrives by inheritance
+// -- every one of these was silently absent while unmapped reads returned 0. A
+// census of the cm7 captures named them; with unmapped accesses now faulting they
+// would halt the guest during boot instead of logging a warning.
+//
+// Declarations are COPIED from the platforms that already carry them (m1.repl for
+// the RTWDOGs and BLK_CTRL_S_AONMIX, zephyr.repl for GPC_CPU_CTRL), not retyped --
+// the same discipline used when cm7.repl was first regenerated, and the reason the
+// adc2 IRQ fabrication is not repeated here.
+//
+// Note cm7 already maps itcm @ 0x00000000, which is correct for the M7's LOCAL
+// view (it boots from ITCM at 0). So address 0 is legitimately mapped on this core
+// and must NOT fault -- the opposite of the cm33 case, and not an inconsistency.
+
+rtwdog1: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x442D0000
+rtwdog2: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x442E0000
+rtwdog3: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x42490000
+rtwdog4: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x424A0000
+rtwdog5: Miscellaneous.IMXRT1180_RTWDOG @ sysbus 0x424B0000
+
+// GPC_CPU_CTRL @ 0x44470000 -- name checked against MIMXRT1189_cm33_COMMON.h
+// (GPC_CPU_CTRL_BASE). Register-backed window, no modelled behaviour.
+gpc_cpu_ctrl: Miscellaneous.IMXRT1180_PeriphRdy @ sysbus 0x44470000
+
+// Decoded-but-unmodelled apertures, same tier-one rule as m1.repl.
+iomuxc_aon: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x443C0000
+iomuxc: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x42A10000
+
+// BLK_CTRL_S_AONMIX @ 0x444F0000. m1.repl gives this the real IMXRT1180_SRC model,
+// but that needs a `src` peripheral this standalone platform does not declare, and
+// pulling SRC in to satisfy one read would be scope this measurement does not
+// justify. The cm7 corpus touches exactly ONE offset here -- 0x444F0080 (M7_CFG) --
+// and read it as 0 for the whole project while it was unmapped. A catch-all returns
+// the same 0 without faulting, so this preserves measured behaviour exactly rather
+// than changing it. Reading CPUWAIT as 0 is inert on a cm7-only platform: the M7 is
+// already running, nothing gates on it. If a cm7 test ever needs the real two-gate
+// release, this graduates to the SRC model and brings `src` with it.
+blkctrl_s_aonmix: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x444F0000

@@ -570,3 +570,42 @@ adc2: Analog.IMXRT1180_LPADC @ sysbus 0x42E00000
     // and 189. Caught when m2 (which had the correct value) collided with this
     // one during the platform merge.
     0 -> nvic@189
+
+// ── DECODED-BUT-UNMODELLED PERIPHERAL APERTURES ──────────────────────────────
+//
+// These five blocks are real, decoded peripheral space that firmware touches and
+// this model does not implement. They are registered as catch-alls (read 0, writes
+// discarded) rather than left unmapped, which is a direct port of the oracle's
+// create_unimplemented_device over the peripheral window (imxrt1180_soc.c:479).
+//
+// ⭐ THIS IS NOT COSMETIC WARNING-SUPPRESSION. It is the first half of a two-tier
+// bus. Silicon DECODES the peripheral window, so an access to an unmodelled register
+// inside a real aperture must NOT fault. Genuinely unmapped memory MUST. Renode's
+// default returns 0 for BOTH, and that single fact cost two days: Zephyr's
+// arch_user_string_nlen dereferences a pointer to TEST reachability and catches the
+// fault, so suppressing it turns a NULL into an empty string and sends execution into
+// a validator that should never run. See EXPERIMENT.md, "ADDRESS-0 ROOT CAUSE".
+//
+// Every base below is SOURCED from MIMXRT1189_cm33_COMMON.h, named exactly as the
+// CMSIS header names it. None was inferred from a neighbour's address -- the adc2
+// comment above records what that costs.
+//
+// If any of these ever needs real behaviour it graduates to its own model; the
+// DEBUG-level log line in IMXRT1180_UnimplementedBlock is what names the block asking.
+
+iomuxc: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x42A10000
+    // IOMUXC_BASE. Pin muxing; the oracle models it with the catch-all too.
+
+iomuxc_aon: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x443C0000
+    // IOMUXC_AON_BASE. The block whose 4 unmapped reads in cm33-tests-kernel-device
+    // were the ONLY in-window holes in that run -- the other unmapped access was
+    // address 0, which is the one that must keep faulting.
+
+sys_ctr_control: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x44290000
+    // SYS_CTR_CONTROL_BASE (ARM system counter).
+
+sys_ctr_compare: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x442A0000
+    // SYS_CTR_COMPARE_BASE.
+
+sys_ctr_read: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0x442B0000
+    // SYS_CTR_READ_BASE.

@@ -23,6 +23,33 @@ machine LoadPlatformDescription @/home/kyle/Documents/GitHub/rt1180renode/platfo
 # one memory_region_init_alias(0x40000000, size 0x10000000) mapped at 0x50000000.
 sysbus Redirect 0x50000000 0x40000000 0x10000000
 
+# ⭐ UNMAPPED ACCESSES MUST FAULT. This is the second half of a two-tier bus, and it
+# is load-bearing for fidelity -- not a debugging aid.
+#
+# Renode's default (Report) logs a warning and returns 0 for an access to unmapped
+# memory. The oracle's model, like silicon, raises a precise BusFault. That single
+# difference cost two days: Zephyr's arch_user_string_nlen DEREFERENCES a pointer in
+# order to TEST whether it is reachable (the load at z_arm_user_string_nlen_fault_start,
+# caught via the fixup range), so returning 0 turns a NULL into an EMPTY STRING and
+# sends execution into a syscall validator that should never have run. The symptom
+# surfaced in the MPU, two subsystems from its cause.
+#
+#     A DEFAULT THAT SUPPRESSES AN ERROR THE GUEST IS WRITTEN TO DEPEND ON DOES NOT
+#     DEGRADE GRACEFULLY -- IT RELOCATES THE SYMPTOM.
+#
+# The FIRST half of the tier is in the .repl: every decoded-but-unmodelled peripheral
+# aperture is registered as an IMXRT1180_UnimplementedBlock, which returns 0 the way
+# the oracle's create_unimplemented_device does. So:
+#     inside a decoded peripheral aperture -> read 0, no fault   (correct: bus decodes)
+#     genuinely unmapped memory            -> precise BusFault   (correct: bus errors)
+#
+# This setting is therefore only safe WITH those blocks present. Turning it on against
+# an incomplete peripheral map faults the guest during boot, before the console exists,
+# and the run looks silent rather than broken -- measure cpu PC / ExecutedInstructions
+# before concluding anything from an empty console.
+sysbus UnhandledAccessBehaviour ThrowException
+
+
 showAnalyzer lpuart1
 cpu PerformanceInMips 240
 

@@ -83,7 +83,17 @@ awk -F'\t' 'NR>1 && $5=="CONTENT-DIFFER"{printf "  %-46s %s non-clock lines\n", 
 # the sha256[:16] of the row's non-duration diff still matches the signature that
 # was signed off; if the diff moved, the excuse is reported STALE and DROPPED, so
 # a regression cannot inherit it.
-ADJ="$(dirname "$OUT")/zephyr-delta-adjudications.tsv"
+# Resolve off ROOT, NOT $(dirname "$OUT"). This file is one canonical list of
+# judgements; it does not move when a re-cut redirects OUT elsewhere. The earlier
+# $(dirname "$OUT") form meant that overriding OUT -- which this project does on
+# purpose, to keep a re-cut off the published baseline -- SILENTLY skipped the
+# whole adjudication block and printed nothing at all. A judgement layer that can
+# quietly not run is worse than none, so a missing file is now LOUD.
+ADJ="${ADJ:-$ROOT/results/zephyr-delta-adjudications.tsv}"
+if [ ! -r "$ADJ" ]; then
+    echo
+    echo "⚠ NO ADJUDICATION FILE at $ADJ -- reporting the RAW figure only." >&2
+fi
 if [ -r "$ADJ" ]; then
     adjudicated=0; stale=0; real=0; APPLIED=$(mktemp)
     echo

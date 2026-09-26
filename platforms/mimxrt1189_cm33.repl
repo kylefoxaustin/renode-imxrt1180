@@ -225,14 +225,31 @@ ccm: Miscellaneous.IMXRT1180_CCM @ sysbus 0x44450000
 // FLEXSPI2_BASE 0x445E0000 [cmsis] — BOARD_DeinitFlash deinits BOTH instances.
 flexspi2: Miscellaneous.IMXRT1180_FlexSPI @ sysbus 0x445E0000
 
-sysbus:
-    init:
-        // Peripheral window is 0x4000_0000 + 0x2000_0000 [brief]. Unmapped
-        // accesses inside it are logged (warning) and read as 0 rather than
-        // faulting -- that log IS the bring-up instrument for finding which
-        // blocks hello_world actually touches. Nothing is stubbed pre-emptively:
-        // stubbing before seeing the trace would hide the very thing I need.
-        Tag <0xE0001000 0xE0001FFF> "DWT"
+// ── DWT: decoded PPB space, unmodelled ───────────────────────────────────────
+// WAS a `sysbus init: Tag <0xE0001000 0xE0001FFF> "DWT"`, and that tag SILENTLY
+// STOPPED WORKING the moment unmapped accesses were made to fault. Renode checks
+// UnhandledAccessBehaviour BEFORE the tag lookup in
+// SystemBus.ReportNonExistingRead, so under ThrowException a tagged range faults
+// exactly like an untagged one. A tag documents intent; it does not register
+// anything.
+//
+// MEASURED, which is how this was caught rather than shipped: with faulting on,
+// cm33-tests-lib-lockfree truncated to 26 lines against QEMU's 61, faulting on
+// DWT_CTRL 0xE0001000 / DWT_CYCCNT 0xE0001004 -- test_mpsc_throughput reads the
+// cycle counter. Reading 0 is what the run did before and is sufficient; the
+// oracle's capture is 61 lines either way.
+//
+// The Private Peripheral Bus is DECODED on a Cortex-M33 exactly as the peripheral
+// window is, so an unmodelled PPB register must read 0 and must NOT bus-fault --
+// the same tier-one rule as the unimplemented apertures in m1.repl. See
+// EXPERIMENT.md, "THE FIX: a two-tier bus".
+//
+// Base is ARCHITECTURAL (ARMv8-M PPB: ITM 0xE0000000, DWT 0xE0001000,
+// FPB 0xE0002000, SCS 0xE000E000), not inferred from a neighbour. ITM and FPB are
+// deliberately NOT registered: nothing in the corpus touches them, and
+// registering unevidenced blocks is how a model grows fiction.
+dwt: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0xE0001000
+    size: 0x1000
 
 // ── LPUART2..11 ──────────────────────────────────────────────────────────────
 // The QEMU oracle maps all twelve; this side mapped only LPUART1 (console) and
