@@ -158,10 +158,49 @@ suite_determinism() {
     emit "$(printf '%-22s %-10s %-30s %s' 'Renode determinism' "$rowsok/$rowsok" "$cond" "$(age "$L")")"
 }
 
+# ── suite 5: SUITE COVERAGE against the oracle's own test tree ────────────────
+# The control this script was MISSING. Every other row answers "do the rows we ran
+# agree?" -- none answered "do we run the rows that exist?" A pass that scores 45/45
+# on a sweep covering 55 of the oracle's 64 tests is a true statement about the wrong
+# denominator, and it is exactly how "42 unattempted" (wrong) and "45/45" (right but
+# silent about coverage) could both come out of the same tree an hour apart.
+#
+# `corpus` and `zephyr` are the oracle's META-suites -- the SDK console corpus and the
+# Zephyr corpus -- which this pass already scores as suites 1 and 2. They are excluded
+# as DUPLICATES, named explicitly rather than filtered by a pattern, so the exclusion
+# cannot silently grow.
+suite_coverage() {
+    local QT=/home/kyle/Documents/GitHub/rt1180emulator/tests
+    local T=results/value-sweep-final45.tsv
+    [ -d "$QT" ] || { emit "$(printf '%-22s %-10s %s' 'Suite coverage' 'MISSING' "oracle tree not at $QT")"; broken=1; return; }
+    local oracle mine
+    oracle=$(ls -d "$QT"/imxrt1180-* 2>/dev/null | sed 's|.*/imxrt1180-||' | sort -u)
+    mine=$(awk -F'\t' 'NR>1{sub(/^imxrt1180-/,"",$1); print $1}' "$T" 2>/dev/null | sort -u)
+    # POSITIVE CONTROL: names that must appear on both sides. If these miss, the name
+    # extraction is broken and the coverage figure is about my regex, not my coverage.
+    local ctl=0
+    for n in adc motor pwm; do
+        printf '%s\n' "$oracle" | grep -qx "$n" && printf '%s\n' "$mine" | grep -qx "$n" && ctl=$((ctl+1))
+    done
+    [ "$ctl" -eq 3 ] || { emit "$(printf '%-22s %-10s %s' 'Suite coverage' 'BROKEN' "positive control $ctl/3 -- name extraction is wrong")"; broken=1; return; }
+    local nmeta=0 missing=""
+    while read -r n; do
+        [ -z "$n" ] && continue
+        case "$n" in corpus|zephyr) nmeta=$((nmeta+1)); continue ;; esac
+        printf '%s\n' "$mine" | grep -qx "$n" || missing="$missing $n"
+    done < <(printf '%s\n' "$oracle")
+    local no nm nmiss
+    no=$(printf '%s\n' "$oracle" | grep -c .)
+    nm=$(printf '%s\n' "$mine" | grep -c .)
+    nmiss=$(printf '%s\n' $missing | grep -c .)
+    [ "$nmiss" -gt 0 ] && disagree=1
+    emit "$(printf '%-22s %-10s %-30s %s' 'Suite coverage' "$((no-nmeta-nmiss))/$((no-nmeta))" "UNATTEMPTED${missing:- none} · meta $nmeta" 'live')"
+}
+
 echo "── DIFFERENTIAL PASS$([ "$DO_RUN" = 1 ] && echo ' (--run: re-measuring)' || echo ' (reading existing tables; --run to re-measure)')"
 echo
 printf '%-22s %-10s %-30s %s\n' SUITE AGREE DETAIL 'FILE MTIME'
-for s in sdk zephyr value determinism; do
+for s in sdk zephyr value determinism coverage; do
     [ -n "$ONLY" ] && [ "$ONLY" != "$s" ] && continue
     "suite_$s"
 done

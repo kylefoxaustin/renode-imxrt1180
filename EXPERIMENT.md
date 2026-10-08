@@ -7228,3 +7228,116 @@ backs the window with the NOR's **own** store (`underlyingMemory` of `flexspi1_n
 the entire Zephyr cm33 corpus is XIP-linked at `0x38000000` and agrees 75/75. Execution
 from XIP is proven by the corpus itself. EXPERIMENT.md had already recorded the tag as
 *retired* rather than corrected; I was quoting my own stale summary rather than the tree.
+
+---
+
+# 📐 RESET-VALUE CROSS-CHECK — 7193 registers against the Reference Manual (2026-10-08)
+
+`scripts/reset_values_check.sh`. Recommended by `@rt1180emulator` as the highest-signal
+row in their value suite, and they were right: it is the only test that checks this model
+against the **silicon spec** rather than against a console string a passing test prints.
+Their `rm-golden.json` is reused **unmodified** — 7193 entries extracted from
+`IMXRT1180RM.pdf` plus the CMSIS headers. Two documents neither of us wrote, which is
+what makes it an oracle rather than a mirror.
+
+```
+alignment control OK: ADC1.CTRL         = 0x00000020 at index 0    of 7193
+alignment control OK: USDHC1.VEND_SPEC  = 0x30007809 at index 6983 of 7193
+
+  MATCH          1038
+  MISMATCH        622      (436 SHARED with the oracle · 186 RENODE-ONLY)
+  UNMAPPED       1650
+  NOT-DISCRIM    3883
+
+SCORED (non-zero golden, mapped): 1038/1660
+```
+
+## Why the denominator is 1660 and not 7193
+
+**3883 entries have a golden reset of 0, and an unmapped read also returns 0.** A "match"
+there is satisfied equally by a correct model, by a block I never implemented, and by an
+address that decodes to nothing. *"7193 registers checked"* would have been a true
+sentence with a **4.3× inflated** denominator — the same confusion that cost two days on
+address 0, where "reads 0 because unmodelled" and "reads 0 because that IS the reset
+value" were indistinguishable and only one was correct.
+
+So zero-golden entries are counted **neither way**, and UNMAPPED is a third category: a
+missing block, not a wrong value, and a different priority.
+
+## 186 instances are 100 distinct defects, and 44 of them are ONE
+
+Counting register instances overstates the work. `LPUART` contributes 44 mismatches —
+which are **4 registers × 11 instances**, one root cause in Renode's stock
+`UART.NXP_LPUART`:
+
+| register | RM golden | Renode |
+|---|---|---|
+| `BAUD` | `0x0F000004` | `0x00000000` |
+| `FIFO` | `0x00C00033` | `0x00C10033` |
+| `DATARO` | `0x00001000` | `0x00000000` |
+| `TOSR` | `0x0000000F` | `0x00000000` |
+
+Grouping by (block family, register, golden, got): **186 instances → 100 distinct
+defects.** Per family: NETC_IERB 34, CCM 18, BLK_CTRL_S_AONMIX 16, FLEXSPI 9, LPI2C 4,
+LPUART 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, LPSPI 1.
+
+Three of those are **Renode's own built-in models**, not code in this tree (LPUART, and
+parts of TRDC/TPM) — which is the same class as defects #11–#18: a stock model that tells
+the guest something silicon never would.
+
+## 436 are SHARED, and that is the oracle's own documented deviation
+
+Both models synthesise the same STABLE/lock bits, for the reason their
+`known-deviations.txt` states outright: *"we model the POST-BOOT-ROM state (our -kernel
+path skips the ROM, and firmware polls STABLE before asserting POWERUP)"*.
+
+```
+SHARED  ANADIG_OSC  OSC_24M_CTRL   golden=0x00000080  got=0x40000080
+SHARED  ANADIG_PLL  ARM_PLL_CTRL   golden=0x400000A6  got=0x600000A6
+SHARED  ANADIG_PLL  SYS_PLL1_CTRL  golden=0x00004000  got=0x20004000
+```
+
+Reporting those as my defects would be wrong twice: they are not mine alone, and they are
+deliberate. The script classifies them by reading the oracle's allowlist, and also reports
+the converse — a register **they** allowlist where **I** match the RM is a row where
+*Renode is more faithful than the oracle*. There were **none** this run, but that finding
+would otherwise have been buried under my own mismatch count.
+
+## ⚠️ TWO INSTRUMENT DEFECTS FOUND BEFORE ANY NUMBER WAS REPORTED
+
+### 1. A warning landed in the middle of a value, and mangled 990 of them
+
+Renode writes values and log lines to **one stream, unsynchronised**:
+
+```
+0x0000[00:23:21] [WARNING] sysbus: ReadDoubleWord from non existing ... at 0x4B864000.
+0000
+```
+
+One value, `0x00000000`, split across two lines. **6203 parseable values for 7193 reads.**
+The alignment guard refused to report, which is the only reason this is a story about a
+stream rather than about 990 fabricated register comparisons. `logFile` does not help: it
+*duplicates* the log, it does not divert it.
+
+Fixed with **two passes**, for correctness rather than caution: values need strict
+positional alignment, so pass 1 silences the log; the unmapped set needs only a **set** of
+addresses, which is order-independent, so pass 2 keeps warnings. *A set does not care
+about order; a positional zip cares about nothing else.* Collecting both from one stream
+forced the stricter requirement onto the looser one for no gain.
+
+### 2. My "positive control" was a display, not a control
+
+It printed `LPUART1.BAUD @ 0x44380010 golden=0x0F000004 read=0x00000000` and I called that
+a control. **The address came from my own order list, not from the read** — so a
+misaligned zip would have printed an equally plausible row and caught nothing.
+
+> ⭐ **A CONTROL HAS TO FAIL WHEN THE THING IT GUARDS BREAKS.** One that merely *displays*
+> a value it already knows is decoration.
+
+Now it asserts on two registers known-good in this model, **one at each end** — because
+`ADC1.CTRL` sits at index 0, and a control at index 0 guards almost nothing: a slip
+introduced anywhere after it passes unnoticed. `USDHC1.VEND_SPEC` at index 6983 is the one
+that actually catches drift, and it only works because it is late.
+
+Full list: `results/reset-value-mismatches.tsv` (186 rows, each tagged SHARED or
+RENODE-ONLY).
