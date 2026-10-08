@@ -7423,5 +7423,55 @@ correction does not model. Correct at reset — which is what the RM specifies a
 driver reads before touching the block — and unchanged afterwards. Both headers say so,
 because claiming a behavioural model I have not written would be the worse error.
 
-Remaining Renode-only root causes, largest first: **CCM 18, BLK_CTRL_S_AONMIX 16,
-FLEXSPI 9, LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, LPSPI 1.**
+### 3. CCM — 18 registers, and I nearly made the fix 48x bigger than needed
+
+| | start | LPUART | NETC_IERB | **CCM** |
+|---|---|---|---|---|
+| MATCH | 1038 | 1082 | 1116 | **1134** |
+| MISMATCH | 622 | 578 | 544 | **526** |
+| RENODE-ONLY | 186 | 142 | 108 | **90** |
+| UNMAPPED / NOT-DISCRIM | 1650 / 3883 | — | — | **unchanged** |
+
+`hello_world` still prints with **0** CCM warnings, which matters because board init polls
+CCM before the console exists.
+
+**The near-miss is the lesson.** My first pass generated the table straight from the golden
+and seeded **868** CCM registers. Only **18** were wrong. This model already returns the
+correct value for the other 850 — several through *computed* reads (LPCG `STATUS0` mirrors
+`DIRECT.ON` so `CLOCK_ControlGate`'s poll retires). Seeding all 868 would have overridden
+850 already-correct values and could have displaced those computed paths, for no gain.
+Reverted and narrowed to exactly the measured set.
+
+> ⭐ **FIX WHAT WAS MEASURED WRONG, NOT EVERYTHING THE GOLDEN MENTIONS.** The golden is a
+> reference, not a work list. A fix sized to the reference instead of to the defect is how
+> a correction becomes a regression.
+
+**And the `*_MIN` registers are load-bearing in a way that is easy to walk past:**
+
+```
+OBSERVE0_FREQUENCY_MIN   golden 0xFFFFFFC0   was 0x00000000
+OBSERVE0_PERIOD_MIN      golden 0xFFFFFFFF   was 0x00000000
+OBSERVE0_HIGH_MIN        golden 0xFFFFFFFF   was 0x00000000
+```
+
+A *"minimum seen so far"* register must reset to its **maximum**, so the first real
+measurement replaces it. Reset it to 0 and the minimum is **0 forever** — no measurement
+can ever go lower. It then reports a perfectly plausible value that is permanently wrong,
+and a driver computing a clock from it gets nonsense with nothing raised anywhere.
+
+That is the **third instance of one pattern** this sweep has surfaced: RTWDOG `CS`
+resetting to 0 instead of `0x900`; LPUART `FIFO` asserting `RXUF` when no underflow had
+occurred; and now a MIN register starting at zero.
+
+> ⭐⭐ **A ZERO RESET VALUE IS NOT THE ABSENCE OF A CLAIM. IT IS A CLAIM.** Here it claims
+> *"the minimum frequency ever observed is zero"* — and nothing downstream can disagree.
+
+Because CCM is **our own** model, these are seeded into `regs[]` by `Reset()` rather than
+shadowed on read: a seeded value behaves correctly for reads, writes and re-reads with no
+special case. The shadow-until-written approach used for LPUART and NETC_IERB was a
+concession to not owning those models, not a preferred design.
+
+### Cumulative: 96 registers, 3 root causes, 186 → 90
+
+Remaining Renode-only root causes, largest first: **BLK_CTRL_S_AONMIX 16, FLEXSPI 9,
+LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, LPSPI 1** — plus a long tail of single rows.

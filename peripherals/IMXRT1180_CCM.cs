@@ -33,11 +33,67 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
 
         public long Size => 0x10000;   // IMXRT1180_CCM_SIZE [oracle]
 
+
+        // ── RM reset values this model was missing ──────────────────────────────
+        //
+        // Exactly the 18 CCM registers that scripts/reset_values_check.sh MEASURED as
+        // reading 0 where the Reference Manual specifies non-zero. Values SOURCED from
+        // rm-golden.json (IMXRT1180RM.pdf + CMSIS), machine-generated into this table
+        // rather than transcribed -- the adc2 IRQ in m1.repl records what a hand-typed
+        // constant costs.
+        //
+        // ⚠️ DELIBERATELY NARROW. The golden carries 868 CCM registers with a non-zero
+        // reset, and this model ALREADY returns the right value for 850 of them -- several
+        // through computed reads (LPCG STATUS0 mirrors DIRECT.ON so CLOCK_ControlGate's
+        // poll completes). Seeding all 868 would override 850 values that are already
+        // correct and could displace those computed paths, for no gain. Fix what was
+        // measured wrong, not everything the golden mentions.
+        //
+        // ⭐ THE *_MIN REGISTERS ARE THE INTERESTING ONES, AND THEIR RESET IS LOAD-BEARING.
+        //
+        // OBSERVE{0,1}_FREQUENCY_MIN / PERIOD_MIN / HIGH_MIN / LOW_MIN reset to ALL-ONES.
+        // That is not decoration: a "minimum seen so far" register must start at its
+        // MAXIMUM so the first real measurement replaces it. Reset it to 0 -- which is
+        // what this model did -- and the minimum is 0 forever, because no measurement can
+        // ever go lower. The register then reports a perfectly plausible value that is
+        // permanently wrong, and a driver computing a clock from it gets nonsense with no
+        // error raised anywhere.
+        //
+        // Same class as RTWDOG CS resetting to 0 instead of 0x900, and as LPUART FIFO
+        // asserting RXUF at reset: A ZERO RESET VALUE IS NOT THE ABSENCE OF A CLAIM, IT IS
+        // A CLAIM -- here, "the minimum frequency ever observed is zero".
+        private static readonly System.Collections.Generic.Dictionary<long, uint> RmResetValues =
+            new System.Collections.Generic.Dictionary<long, uint>
+        {
+            { 0x04430, 0xFFFF0000 },  // OBSERVE0_AUTHEN
+            { 0x04434, 0xFFFF0000 },  // OBSERVE0_AUTHEN_SET
+            { 0x04438, 0xFFFF0000 },  // OBSERVE0_AUTHEN_CLR
+            { 0x0443C, 0xFFFF0000 },  // OBSERVE0_AUTHEN_TOG
+            { 0x04444, 0xFFFFFFC0 },  // OBSERVE0_FREQUENCY_MIN
+            { 0x04454, 0xFFFFFFFF },  // OBSERVE0_PERIOD_MIN
+            { 0x04464, 0xFFFFFFFF },  // OBSERVE0_HIGH_MIN
+            { 0x04474, 0xFFFFFFFF },  // OBSERVE0_LOW_MIN
+            { 0x044B0, 0xFFFF0000 },  // OBSERVE1_AUTHEN
+            { 0x044B4, 0xFFFF0000 },  // OBSERVE1_AUTHEN_SET
+            { 0x044B8, 0xFFFF0000 },  // OBSERVE1_AUTHEN_CLR
+            { 0x044BC, 0xFFFF0000 },  // OBSERVE1_AUTHEN_TOG
+            { 0x044C4, 0xFFFFFFC0 },  // OBSERVE1_FREQUENCY_MIN
+            { 0x044D4, 0xFFFFFFFF },  // OBSERVE1_PERIOD_MIN
+            { 0x044E4, 0xFFFFFFFF },  // OBSERVE1_HIGH_MIN
+            { 0x044F4, 0xFFFFFFFF },  // OBSERVE1_LOW_MIN
+            { 0x04A10, 0xFF000100 },  // GPR_SHARED_STATUS4
+            { 0x04A14, 0x00000007 },  // GPR_SHARED_STATUS5
+        };
+
         public void Reset()
         {
             for(var i = 0; i < regs.Length; i++)
             {
                 regs[i] = 0;
+            }
+            foreach(var kv in RmResetValues)
+            {
+                regs[kv.Key / 4] = kv.Value;
             }
             for(var n = 0; n < RootCount; n++)
             {
