@@ -7107,3 +7107,88 @@ hurt a VL prefill. Published only so nobody mistakes those rows for clean timing
 
 **M-G first half: DONE.** Remaining in M-G is the single differential harness over both
 tools in one pass.
+
+---
+
+# 🧪 M-G half 2 — the differential pass (2026-10-08)
+
+`scripts/differential.sh`. One command, four suites, one verdict.
+
+```
+── DIFFERENTIAL PASS (reading existing tables; --run to re-measure)
+
+SUITE                  AGREE      DETAIL                         MEASURED
+SDK console corpus     31/31      differ 0                       17d ago
+Zephyr console delta   75/75      unexplained 0                  12d ago
+Oracle value tests     12/12      fail 0 · NOT ATTEMPTED 42      18d ago
+Renode determinism     4/4        under load                     42m ago
+
+RESULT: all suites green, no unexplained disagreement on any observable.
+```
+
+## It is an ORCHESTRATOR and re-implements nothing
+
+Each suite already carries guards paid for with false findings — content-based completion
+checking, per-tool wall budgets, `truncated` scored as a harness verdict rather than a
+model one, row-count assertions. Re-deriving any of that here would create a **second**
+set of guards that drifts from the first, and a divergent guard is worse than no guard:
+two numbers disagree and the reader has to guess which governs. So this runs the suites
+and reads their tables.
+
+## Built to refuse, and mutation-proven that it can
+
+| mutation | expected | got |
+|---|---|---|
+| a suite's table goes missing | refuse, exit 2 | ✓ `MISSING … no figure`, exit 2 |
+| a real `FAIL` injected | flag, exit 1 | ✓ `11/12 fail 1`, exit 1 |
+| an unrecognised verdict | refuse, exit 2 | ✓ `BROKEN unknown verdict(s): WAT` |
+| restored | green, exit 0 | ✓ exit 0 |
+
+**An absent suite scored 0/0 reads exactly like a suite that found nothing wrong**, so a
+missing table yields no figure at all rather than a flattering one.
+
+### Two defects this found in itself, before it ever reported a number
+
+1. **It scored `OUT-OF-SCOPE` as a disagreement.** First run said *"Oracle value tests
+   12/54, non-PASS 42"* — which reads like a catastrophic regression and is nothing of
+   the kind: the 42 are tests **not attempted**, the same category as the Zephyr study's
+   UNSCOREABLE free-runners. Scoring a non-attempt as a failure is the mirror of the
+   mistake this project keeps making the other way (a short run scored as a verdict).
+   Now excluded from the ratio, counted neither way, **and the count printed** — 42
+   unattempted tests is the most important thing on that row, and burying it in a
+   denominator or dropping it silently are both ways of not saying it.
+2. **An unknown verdict was silently scored as a failure**, because FAIL was defined as
+   *"not PASS and not OUT-OF-SCOPE"*. Found by mutation-testing this script, not by
+   reading it. A verdict value added upstream that this scorer has never heard of would
+   have produced a wrong number instead of an error. Now the vocabulary is asserted:
+   anything outside `{PASS, FAIL, OUT-OF-SCOPE}` is a **malformed table**, not a failing
+   test.
+
+## ⭐ STALENESS IS PRINTED, NEVER INFERRED — and it earned its keep immediately
+
+The `MEASURED` column exists because of a defect I hit hours earlier on the bus: a peer's
+lease advertised a *resource profile* that had finished an hour before, so I asked the
+right question about the wrong state of the world. **A status field nobody timestamps is
+a claim that goes stale silently.**
+
+Applied to my own harness it paid off on the first run: `value-tests.tsv` is **18 days
+old** and marks `cm7wait`/`dualcore` OUT-OF-SCOPE, while ROADMAP.md records those rows as
+closed. Without the age column I would have read a stale table as current. `--run` is
+therefore required to re-measure; the default READS, so nobody burns hours of emulation
+by accident and nobody mistakes a read for a measurement either.
+
+## The honest headline is not the ratios
+
+**42 of 54 oracle value tests have never been attempted.** That is precisely the biased-
+sample risk the roadmap named itself — *"13/13 on the group I chose is a biased sample; I
+picked the group I had just built."* It is now one visible line instead of an absence, and
+it is the largest remaining unknown in the whole comparison.
+
+## XIP: the gap I was carrying forward did not exist
+
+I had been listing *"XIP fetch path not modelled"* as open. It is not, and has not been
+since the map change: `flexspi1_flash_memory: Memory.MappedMemory @ sysbus 0x28000000`
+backs the window with the NOR's **own** store (`underlyingMemory` of `flexspi1_nor`), and
+the entire Zephyr cm33 corpus is XIP-linked at `0x38000000` and agrees 75/75. Execution
+from XIP is proven by the corpus itself. EXPERIMENT.md had already recorded the tag as
+*retired* rather than corrected; I was quoting my own stale summary rather than the tree.
