@@ -7475,3 +7475,118 @@ concession to not owning those models, not a preferred design.
 
 Remaining Renode-only root causes, largest first: **BLK_CTRL_S_AONMIX 16, FLEXSPI 9,
 LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, LPSPI 1** — plus a long tail of single rows.
+
+---
+
+# 🎤 SAI RX CLOSED — a shared generator, specified once and implemented twice (2026-10-08)
+
+The roadmap item read *"close the shared SAI RX gap on both sides, with a test that
+consumes received samples — so the direction is proven, not asserted."* Done, and the
+honest version of it corrected a claim this file used to make.
+
+## The claim that was empty
+
+*"Renode is ahead on SAI RX"* was wrong, and I had repeated it in the README and to Kyle.
+At register level it was true — `RCSR`/`RCR1-5`/`RDR0-1`/`RFR0-1` exist here and the
+oracle's `PERIPHERALS.md` says *"RX path not modelled (RFR reads empty)"*. But **nothing
+fed the RX path on either side**, so both models stalled at the same point in
+`sai/edma_record_playback` and the observable difference was **NONE**.
+
+> ⭐ **REGISTERS NOBODY CAN REACH ARE NOT A FIDELITY ADVANTAGE.** The gap was in the TEST,
+> not in either model, and closing it needed the same source on both sides or the
+> comparison would have meant nothing.
+
+## The generator, locked before either side built it
+
+```
+sample(n) = (uint16_t)(n * 2654435761u >> 16)      // Knuth multiplicative
+n = 0 on RCSR.RE 0->1, ++ per word pushed into RFR
+```
+
+Chosen for properties that matter to the test: deterministic and **seedless** (no RNG
+state to diverge between two independent implementations); **not a counter and not a
+constant** — a ramp hides word-order and endianness bugs because an off-by-one still
+looks like a ramp, and a constant hides everything; resettable on enable.
+
+`@rt1180emulator` adopted it as written and implemented their half
+(`a43697b20e`, bare-metal test value- and mutation-proven). I implemented mine. **Both
+sides produced the identical sequence from the spec alone**, verified against their
+published values before either of us ran firmware:
+
+```
+theirs: [0,-25033,15470,-9562,30941,5909,-19124,21380,-3653,-28685,11818,-13214]
+mine  : [0,-25033,15470,-9562,30941,5909,-19124,21380,-3653,-28685,11818,-13214]
+```
+
+## Result: stock `edma_record_playback`, unmodified, 2ch/16 kHz/s16
+
+```
+TX samples traceable to a unique generator index : 2560/2560
+TX values that are NOT any generator value       : 0
+gen index at TX[0..11]    : 0,1,2,…,11            exact, from sample(0)
+gen index at TX[396..407] : 396,397,398,399, 2448,2449,…
+non-zero 2559/2560 · distinct 2560
+```
+
+**Every sample in the stream is generator output**, delivered in monotonic runs. The jump
+at 400 is the demo's own ring (`BUFFER_NUMBER=4`): it records continuously while playback
+lags, so playback picks up a buffer recorded later. That is the demo's buffering, not
+corruption — and tracing each sample back to a unique generator index is what
+distinguishes the two. The round trip RX FIFO → RX eDMA → memory → TX eDMA → TX FIFO →
+sink is proven to preserve the data exactly. TX regression: **6/6 SAI value rows still ok.**
+
+## ⚠️ THREE REAL DEFECTS THIS FOUND, AND NONE OF THEM WAS THE GENERATOR
+
+### 1. The SAI was 32-bit only — the actual blocker
+
+```
+sai1 : Attempted Word write isn't supported by the peripheral. Offset 0x20
+edma3: CH0: Executing transfer from 0x204C0000 (Word) to 0x443B0020 (Word)
+```
+
+The example is 16-bit stereo, so its eDMA minor loops are **Word** wide, and every write
+to `TDR0` was rejected — 0-byte wav. The existing SAI value tests pass because they
+transfer 32 bits at a time, so **the gap was invisible to every test in the suite** until
+stock firmware with a real audio format arrived. The register map, the generator and the
+DMA mux were all correct and the block still did nothing, because it could not accept the
+**access width** the driver uses.
+
+### 2. The drain tick was TX-only
+
+`SetDrainEnabled` was called from the `TCSR` write alone. `record_playback` enables RX to
+record **before** TX to play back, so the clock entry was still stopped when RX came up
+and the generator was never ticked. Now gated on `AnyDirectionEnabled()` as a helper, so
+the two paths cannot drift apart again — which is exactly how RX came to be ticked by a
+TX-only condition.
+
+### 3. Two underruns that produced CORRECT VALUES WITH GAPS
+
+```
+fill 1 word/frame : TX [0,-25033,15470, 0,0,0,0,0, -9562,…]
+fill 1 word/word  : TX [0,-25033,15470,-9562,30941,5909, 0,0, -19124,…]
+generator         :    [0,-25033,15470,-9562,30941,5909,-19124,21380,…]
+```
+
+Every value present was **right**, and the sequence resumed in order after each gap — so a
+spot-check of the first few samples passes **both times**. Only comparing the whole stream
+against the generator caught it.
+
+Cause: `RDR0` returns 0 on an empty FIFO, and the `sai_edma` driver's per-request burst is
+`depth - watermark` words. A request raised with less than a burst available lets the
+minor loop read zeros for the remainder. Fixed by topping the FIFO up (a codec streams
+continuously; audio timing is set by the fs-paced TX drain, not by throttling the source)
+and raising the request only when a whole burst is available — which is what the watermark
+means in hardware.
+
+> ⭐ **AN UNDERRUN DOES NOT LOOK LIKE AN ERROR. IT LOOKS LIKE SILENCE SPLICED INTO THE
+> STREAM** — and silence made of correct samples is the hardest kind of wrong to see.
+
+## And a number I nearly took from the wrong chip
+
+The RX eDMA request source had to come from somewhere. The first match I found was
+`kDma3RequestMuxSai1Rx = 22U` — in
+`middleware/tfm/.../nxp/**mcimx93evk**/Native_Driver/periph/PERI_DMA.h`. **i.MX 93, not
+RT1180.** The RT1180 device header says `22|0x100U`, and `SRC` is a 7-bit field so the
+`0x100` is discarded — consistent with TX already working as `21`. Same value, arrived at
+honestly rather than by luck, and the near-miss is why `grep` hits get their file path
+read before their number is used.

@@ -53,16 +53,18 @@ using Antmicro.Renode.Time;
 
 namespace Antmicro.Renode.Peripherals.Sound
 {
-    public class IMXRT1180_SAI : IDoubleWordPeripheral, IKnownSize
+    public class IMXRT1180_SAI : IDoubleWordPeripheral, IWordPeripheral, IKnownSize
     {
         public IMXRT1180_SAI(IMachine machine, IMXRT1180_CCM ccm = null, IMXRT1180_eDMA dma = null,
-                             int clockRoot = 65, int dmaRequestSource = 21, uint param = 0x00050402)
+                             int clockRoot = 65, int dmaRequestSource = 21, int rxDmaRequestSource = 22,
+                             uint param = 0x00050402)
         {
             this.machine = machine;
             this.ccm = ccm;
             this.dma = dma;
             this.clockRoot = clockRoot;
             this.dmaRequestSource = dmaRequestSource;
+            this.rxDmaRequestSource = rxDmaRequestSource;
             this.param = param;
             fifoDepth = 1 << (int)((param >> 8) & 0xF);   // PARAM[11:8] = log2(depth)
             regs = new uint[Size / 4];
@@ -77,12 +79,59 @@ namespace Antmicro.Renode.Peripherals.Sound
 
         public long Size => 0x1000;
 
+        // ── 16-BIT ACCESS ────────────────────────────────────────────────────────
+        //
+        // ⚠️ THE SAI WAS 32-BIT ONLY, AND THAT IS WHAT ACTUALLY BLOCKED RX PLAYBACK.
+        //
+        // sai/edma_record_playback is 16-bit stereo, so its eDMA minor loops are WORD
+        // wide. Measured, with sai1 at DEBUG:
+        //
+        //   sai1 : Attempted Word write isn't supported by the peripheral. Offset 0x20
+        //   edma3: CH0: Executing transfer from 0x204C0000 (Word) to 0x443B0020 (Word)
+        //
+        // Every one of those 16-bit writes to TDR0 was REJECTED, so the TX FIFO never
+        // filled and the sink produced a 0-byte wav. The existing SAI value tests pass
+        // because they transfer 32 bits at a time -- the gap was invisible to every test
+        // in the suite until real stock firmware with a real audio format arrived.
+        //
+        // This is the kind of hole only running the vendor's own example finds: the
+        // register map was right, the RX generator was right, the DMA mux was right, and
+        // the block still did nothing because it could not accept the ACCESS WIDTH the
+        // driver uses.
+        //
+        // Routed to the same 32-bit register logic so there is one implementation of
+        // behaviour and no second copy to drift: the low/high half is selected by the
+        // offset's bit 1, and the data registers (TDR0/RDR0) take the 16-bit sample
+        // directly, which is what the audio path actually needs.
+        public ushort ReadWord(long offset)
+        {
+            var word = ReadDoubleWord(offset & ~3L);
+            return (ushort)((offset & 2) != 0 ? word >> 16 : word);
+        }
+
+        public void WriteWord(long offset, ushort value)
+        {
+            var aligned = offset & ~3L;
+            if(aligned == (long)Registers.Tdr0 || aligned == (long)Registers.Rdr0)
+            {
+                // A 16-bit sample write is the whole payload, not a half-register edit.
+                WriteDoubleWord(aligned, value);
+                return;
+            }
+            var current = ReadDoubleWord(aligned);
+            var merged = (offset & 2) != 0
+                ? (current & 0x0000FFFFu) | ((uint)value << 16)
+                : (current & 0xFFFF0000u) | value;
+            WriteDoubleWord(aligned, merged);
+        }
+
         public void Reset()
         {
             Array.Clear(regs, 0, regs.Length);
             txFifo.Clear();
             rxFifo.Clear();
             drainAccumulator = 0;
+            rxSampleIndex = 0;
             SetDrainEnabled(false);
         }
 
@@ -156,6 +205,21 @@ namespace Antmicro.Renode.Peripherals.Sound
                     var previous = regs[offset / 4];
                     var stickyRx = previous & CsrStickyFlags & ~(value & CsrStickyFlags);
                     regs[offset / 4] = (value & ~(CsrStickyFlags | CsrFrf | CsrFwf | CsrSr | CsrFr)) | stickyRx;
+                    // RE 0->1 restarts the generator at sample 0, per the locked spec.
+                    // Edge-triggered, not level: re-writing RCSR with RE already set must
+                    // NOT rewind the stream mid-capture.
+                    if((previous & CsrEn) == 0 && (value & CsrEn) != 0)
+                    {
+                        rxSampleIndex = 0;
+                        rxFifo.Clear();
+                    }
+                    // ⚠️ THE TICK WAS TX-ONLY, AND THAT IS WHY RX PRODUCED NOTHING.
+                    // SetDrainEnabled was called from the TCSR write alone, so with the
+                    // record_playback example -- which enables RX to record BEFORE it
+                    // enables TX to play back -- the clock entry was still stopped when
+                    // RX came up, and the generator was never ticked. The registers were
+                    // all correct and the block was simply not running.
+                    SetDrainEnabled(AnyDirectionEnabled());
                     if((value & (CsrFr | CsrSr)) != 0)
                     {
                         rxFifo.Clear();
@@ -188,7 +252,7 @@ namespace Antmicro.Renode.Peripherals.Sound
                         // behaviour the fsl_sai driver's reset sequence expects.
                         regs[offset / 4] &= ~CsrSr;
                     }
-                    SetDrainEnabled((regs[offset / 4] & CsrEn) != 0);
+                    SetDrainEnabled(AnyDirectionEnabled());
                     UpdateFlags();
                     return;
                 }
@@ -344,6 +408,61 @@ namespace Antmicro.Renode.Peripherals.Sound
             }
         }
 
+        // RX is enabled, TX is enabled, or both -- the shared drain/fill tick must run
+        // for either. Checked as a helper rather than inline so the TCSR and RCSR paths
+        // cannot drift apart, which is exactly how the RX direction came to be ticked by
+        // a TX-only condition.
+        private bool AnyDirectionEnabled()
+        {
+            return (regs[(long)Registers.Tcsr / 4] & CsrEn) != 0
+                || (regs[(long)Registers.Rcsr / 4] & CsrEn) != 0;
+        }
+
+        // RX eDMA request: raised while FRDE is set and the FIFO has reached its
+        // watermark, mirroring the TX handshake (a serviced minor loop drains the FIFO
+        // and lowers the line of its own accord). Bounded for the same reason.
+        private void ServiceRxDmaRequest()
+        {
+            if(dma == null || servicingRequest)
+            {
+                return;
+            }
+            servicingRequest = true;
+            try
+            {
+                for(var guard = 0; guard < MaximumRequestsPerUpdate; guard++)
+                {
+                    var rcsr = regs[(long)Registers.Rcsr / 4];
+                    var rxWatermark = regs[(long)Registers.Rcr1 / 4] & Tcr1TfwMask;
+                    var burst = fifoDepth - (int)rxWatermark;
+                    if(burst < 1)
+                    {
+                        burst = 1;
+                    }
+                    if((rcsr & CsrEn) == 0 || (rcsr & CsrFrde) == 0 || rxFifo.Count < burst)
+                    {
+                        return;
+                    }
+                    if(!dma.TryGetChannelBySlot(rxDmaRequestSource, out var channel))
+                    {
+                        return;
+                    }
+                    var before = rxFifo.Count;
+                    dma.OnGPIO(channel, true);
+                    if(rxFifo.Count == before)
+                    {
+                        return;              // channel did not advance; do not spin
+                    }
+                }
+                this.Log(LogLevel.Warning, "RX DMA request still asserted after {0} serviced minor "
+                    + "loops; giving up this round", MaximumRequestsPerUpdate);
+            }
+            finally
+            {
+                servicingRequest = false;
+            }
+        }
+
         private void SetDrainEnabled(bool enabled)
         {
             machine.ClockSource.ExchangeClockEntryWith(DrainTick, entry => entry.With(enabled: enabled));
@@ -369,7 +488,72 @@ namespace Antmicro.Renode.Peripherals.Sound
             {
                 WriteSampleToSink(txFifo.Dequeue());
             }
+
+            // ── RX: the deterministic sample source ──────────────────────────────
+            // Paced by the SAME accumulator that drains TX, so RX and TX advance on one
+            // clock and the round-trip cannot drift against itself.
+            if((regs[(long)Registers.Rcsr / 4] & CsrEn) != 0)
+            {
+                // ⚠️ KEEP THE RX FIFO TOPPED UP, AND GATE THE REQUEST ON A WHOLE BURST.
+                //
+                // Two failures got me here, and both produced CORRECT VALUES WITH GAPS,
+                // which is far more dangerous than wrong values:
+                //
+                //   fill 1 word/frame : TX [0,-25033,15470, 0,0,0,0,0, -9562,...]
+                //   fill 1 word/word  : TX [0,-25033,15470,-9562,30941,5909, 0,0, -19124,...]
+                //   generator         :    [0,-25033,15470,-9562,30941,5909,-19124,21380,...]
+                //
+                // Every value present was right and the sequence resumed in order after
+                // each gap, so a spot-check of the first few samples PASSES both times.
+                // Only comparing the whole stream against the generator found it.
+                //
+                // The cause is not the fill rate -- it is that RDR0 returns 0 on an empty
+                // FIFO, and the sai_edma driver's per-request burst is depth-watermark
+                // words (documented at the top of this file). A request raised with fewer
+                // than a burst available lets the minor loop read zeros for the remainder.
+                //
+                // So: a codec streams CONTINUOUSLY, so the FIFO is topped up rather than
+                // rate-limited -- the audio timing is set by the fs-paced TX drain, not by
+                // throttling the source -- and the request is raised only when a full
+                // burst is there to be taken, which is what the watermark means in
+                // hardware.
+                while(rxFifo.Count < fifoDepth)
+                {
+                    rxFifo.Enqueue(NextRxSample());
+                }
+                ServiceRxDmaRequest();
+            }
             UpdateFlags();
+        }
+
+        // ⭐ THE SHARED GENERATOR — specified ONCE, implemented TWICE.
+        //
+        // Agreed with @rt1180emulator and locked before either side built it:
+        //
+        //     sample(n) = (uint16_t)(n * 2654435761u >> 16)      // Knuth multiplicative
+        //     n = 0 on RCSR.RE 0->1, ++ per word pushed into RFR
+        //
+        // WHY THIS SHAPE, because the choice is the whole point of the test:
+        //   * deterministic and SEEDLESS -- no RNG state that could diverge between
+        //     two independent implementations
+        //   * NOT a counter and NOT a constant. A ramp hides word-order and endianness
+        //     bugs (off-by-one looks like a ramp); a constant hides everything. This
+        //     changes every sample and every byte.
+        //   * resettable on enable, so repeated RE 0->1 is reproducible
+        //
+        // BEFORE THIS, "Renode models SAI RX and QEMU does not" WAS AN EMPTY CLAIM. Both
+        // models stalled at the same point in sai/edma_record_playback because NOTHING
+        // fed the RX path on either side -- my RCSR/RDR/RFR registers were unreachable
+        // and their RFR read empty, which is the SAME observable (none) from the
+        // firmware. Registers nobody can reach are not a fidelity advantage. The gap was
+        // in the TEST, and closing it needed the same source on both sides or the
+        // comparison would have meant nothing.
+        private ushort NextRxSample()
+        {
+            unchecked
+            {
+                return (ushort)((uint)rxSampleIndex++ * 2654435761u >> 16);
+            }
         }
 
         // ⭐⭐⭐ A BLOCK THAT ACCEPTS EVERY SAMPLE AND EMITS NOTHING PASSES EVERY
@@ -485,6 +669,12 @@ namespace Antmicro.Renode.Peripherals.Sound
         private readonly IMXRT1180_CCM ccm;
         private readonly IMXRT1180_eDMA dma;
         private readonly int clockRoot;
+        // SOURCED from CMSIS: kDma3RequestMuxSai1Tx = 21U, kDma3RequestMuxSai1Rx = 22U
+        // (MIMXRT1189 headers). TX and RX are SEPARATE request lines, and RX is not
+        // "TX plus one" by derivation -- it is 22 because the header says 22. The adc2
+        // IRQ in m1.repl records what inferring an adjacent number costs.
+        private readonly int rxDmaRequestSource;
+
         private readonly int dmaRequestSource;
         private readonly uint param;
         private readonly int fifoDepth;
@@ -492,6 +682,7 @@ namespace Antmicro.Renode.Peripherals.Sound
         private readonly Queue<uint> txFifo;
         private readonly Queue<uint> rxFifo;
         private ulong drainAccumulator;
+        private uint rxSampleIndex;
         private bool servicingRequest;
         private FileStream wavStream;
         private int wavSamples;
