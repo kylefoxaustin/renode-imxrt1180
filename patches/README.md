@@ -1,6 +1,6 @@
 # tlib patch bundle — Renode 1.17.0, Cortex-M core defects
 
-Four defects in Renode's CPU core (tlib), found by running the QEMU oracle's
+Five defects in Renode, found by running the QEMU oracle's
 bare-metal tests against the Renode model. Each is **mutation-proven**: the
 fix is switched off and on by swapping only the `.so`, and the test verdict
 flips with it. None is argued from reading code alone.
@@ -10,6 +10,7 @@ flips with it. None is argued from reading code alone.
 | `tlib-defect11-defect12.patch` | #11 wrong EXC_RETURN SPSEL, #12 thread-swap | `arm_thread_swap` | byte-identical console vs QEMU |
 | `tlib-defect13.patch` | #13 CFSR.STKOF never raised — ARMv8-M stack-limit protection was inert while every MSR/MRS to MSPLIM/PSPLIM succeeded | stack-overflow detection | `.so` flip |
 | `tlib-defect14.patch` | #14 taking an exception does not clear `env->wfi` — the core sleeps inside its own handler | **every WFI-idle RTOS path** | `.so` flip ×2, deterministic |
+| `tlib-defect18-mpu-alias-index.patch` | #18 the MPU **alias** registers (`MPU_RBAR_A1/A2/A3`, `MPU_RLAR_A1/A2/A3`) were indexed `(index << 2) + region_offset` instead of `(index & ~3) \| region_offset`, so an alias write landed on a region number up to 4× too high — silently dropping it when that number exceeded `number_of_mpu_regions` | any PMSAv8 configuration written through the aliases | ABI-verified 2604 symbols both sides; regression 45 PASS / 0 FAIL; the fabricated-index form re-introduced and the failure returns |
 
 ## ⚠️ THERE ARE TWO tlib TREES ON THIS MACHINE. ONLY ONE IS BUILT.
 

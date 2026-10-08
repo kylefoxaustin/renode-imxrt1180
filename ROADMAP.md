@@ -28,12 +28,12 @@ All MEASURED, on this box, this session or earlier:
 
 | axis | state |
 |---|---|
-| Vendor SDK console corpus | **31/31** rows agree, `differ 0` — re-verified again after the XIP base-map change |
-| Zephyr console delta study | **75/83 (90 %)** agree; every non-agreeing row has a named cause |
+| Vendor SDK console corpus | **30 / 30 examples agree, differ 0** (31 rows) — re-verified again after the XIP base-map change |
+| Zephyr console delta study | **75 / 75 scoreable agree**, 0 unexplained content differences (was 75/83 before the corpus was re-cut with completion-based scoring, then 70/76 → 75/75 after the unmapped-access fix). ⚠ The scoreable denominator moved 76 → 75: `arm_mpu_wt` left it by becoming **byte-identical** to QEMU, not by being excused |
 | Oracle value tests, motor/ADC group | **13/13 PASS** — their binaries, unmodified, on my models |
 | Dual-core rows | **all closed** — `cm7wait`, `dualcore`, `mu`, `ele-corestart`, `edma-swstart-order` |
 | Audio | `sai` **byte-exact at two operating points**, verdict rendered outside the guest |
-| Renode defects found | **14**; #11–#14 mutation-proven fixed locally, patch bundle in `patches/` |
+| Renode defects found | numbered to **#18**; #11–#14 (tlib), #16 (managed core) and #18 (MPU alias indexing) fixed locally and mutation-proven, patch bundle in `patches/`. #17 was **retracted** — its premise was falsified, and it is counted as a defect nowhere |
 | Oracle value-test sweep | **45 PASS** of 55 (was 19) — **0 FAIL**, 0 NO-OUTPUT; the other 10 ship their own harness |
 | Renode defects found | **15**; #11–#14 fixed in tlib and mutation-proven, #15 (LPSPI ignores `TCR[CONT]`) worked around with an own model |
 | NETC | **4/7** — `ptp`, `fdb`, `fwd` with no frame backend; `rxfwd` via `IMACInterface` + RX ring |
@@ -89,7 +89,7 @@ tree."
 
 **Gate: MET.** `arm_thread_swap` → **IDENTICAL**. `arm_interrupt` → **83/83 with
 `SUITE PASS`**, 3 changed lines, all printed durations. Six already-identical rows
-stayed identical (no regressions). Delta study on the patched core: **75/83 (90 %)**
+stayed identical (no regressions). Delta study on the patched core, as measured at the time: **75/83 (90 %)** — superseded, see the table above
 vs 73/83 on the baseline, published in `results/PATCHED-CORE.md` with the library
 named. Remaining: promote the patched library to the installed default once no
 measurement is in flight against the baseline.
@@ -571,6 +571,31 @@ Equivalency is not a property of one run.
 
 **Gate:** three consecutive identical runs per tool per artifact; the differential
 harness green end-to-end.
+
+### ✅ Half 1 — RENODE DETERMINISM MEASURED, 2026-10-07. Load-invariant.
+
+`scripts/determinism_check.sh` compares the **raw UART byte stream** (deliberately not a
+normalised form — normalising discards the one signal that says the virtual clock is
+leaking host time).
+
+| condition | runs | result |
+|---|---|---|
+| idle box | 3 | 4/4 targets byte-identical |
+| **32-core saturation** | 3 | 4/4 targets byte-identical |
+| **idle vs load** | — | **same sha256 on all four** |
+
+`cm33-tests-kernel-timer-timer_monotonic` prints a *virtual*-time measurement and
+`delta: 240011756` reproduced to the digit in **every run of both conditions**; a
+host-time leak would surface there first and nowhere else. A positive control (one
+appended byte → DIFFER) proves the comparison discriminates.
+
+The load pass is the one that counts: the oracle's own suite passed idle and **broke**
+under saturation, from a point-sample of periodic counters coinciding by phase and a
+fixed wall-clock poll that called a slow box a failing model. *Invariance demonstrated
+beats invariance merely not disproved.*
+
+**Still open in M-G:** half 2, the single differential harness over both tools in one
+pass.
 
 > ⚠ **The harness is the instrument the mission is judged on, and it has been the
 > single largest source of false findings in this project** — six silent failures in
