@@ -33,7 +33,7 @@ using "mimxrt1189_cm7.repl"
 // core, and a platform built from one of them is silent under the other.
 // LPUART1_BASE 0x44380000, LPUART1_IRQn = 19 on the cm7 NVIC. [cmsis, cm7 header]
 // Both UARTs are present: this platform now serves Zephyr cm7 AND SDK cm7.
-lpuart1: UART.NXP_LPUART @ sysbus 0x44380000
+lpuart1: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x44380000
     fifoSize: 16
     IRQ -> nvic@19
 

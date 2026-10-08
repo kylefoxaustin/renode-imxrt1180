@@ -50,7 +50,7 @@ ocram2: Memory.MappedMemory @ sysbus 0x20500000
 // Zephyr's cm7 board target uses `zephyr,console = &lpuart12`, where the cm33
 // target uses lpuart1. LPUART12_BASE = 0x44580000, LPUART12_IRQn = 159. [cmsis]
 // Same fifoSize rationale as LPUART1 (FSL_FEATURE_LPUART_FIFO_SIZEn == 16).
-lpuart12: UART.NXP_LPUART @ sysbus 0x44580000
+lpuart12: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x44580000
     fifoSize: 16
     IRQ -> nvic@159
 

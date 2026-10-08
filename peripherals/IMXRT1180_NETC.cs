@@ -77,6 +77,67 @@ namespace Antmicro.Renode.Peripherals.Network
             loggedScope = false;
         }
 
+
+        // ── NETC_IERB reset values ───────────────────────────────────────────────
+        //
+        // The Integrated Endpoint Register Block lives INSIDE this aperture (region
+        // offset 0x800000), the same way EMDIO does at 0xBA0000 -- Renode rejects
+        // overlapping sysbus registrations, so it cannot be its own peripheral.
+        //
+        // These 34 registers were reading 0 while the RM specifies non-zero values:
+        // 34 of the reset-value sweep's Renode-only mismatches, and the largest single
+        // block in it. They are CAPABILITY and CONFIG registers -- CAPR0..3 report how
+        // many ports, VSIs and tables the silicon has; NETCCLKFR/CLKCR the clock
+        // frequency; L0..L5 CAPR the per-link capabilities. A driver that sizes its
+        // structures from a capability register reading 0 allocates nothing and then
+        // fails somewhere else entirely, which is the latent-defect shape this whole
+        // sweep exists to find.
+        //
+        // Every value is SOURCED from rm-golden.json (IMXRT1180RM.pdf + CMSIS), machine-
+        // generated into this table rather than transcribed -- 34 hand-copied 32-bit
+        // constants is a typo waiting to be mistaken for a model defect.
+        //
+        // Read-only here: the reset value is returned until the guest writes the offset,
+        // after which regs[] governs, exactly as the LPUART correction does. Modelling
+        // their behaviour is a separate job and is not claimed.
+        private static readonly Dictionary<long, uint> IerbResetValues = new Dictionary<long, uint>
+        {
+            { 0x800000, 0x01110651 },  // CAPR0
+            { 0x800004, 0x000E000E },  // CAPR1
+            { 0x800008, 0x00000034 },  // CAPR2
+            { 0x80000C, 0x00080008 },  // CAPR3
+            { 0x800020, 0x00002800 },  // CMCAPR
+            { 0x800030, 0x000000C4 },  // IPFTMCAPR
+            { 0x800044, 0x00000700 },  // TGSMCAPR
+            { 0x800080, 0x00000040 },  // SMDTR
+            { 0x800100, 0x06400200 },  // HBTMAR
+            { 0x800104, 0x00000032 },  // HBTCR
+            { 0x800170, 0x00000634 },  // NETCFLRCR
+            { 0x800178, 0x2AAAAAAA },  // NETCCLKFR
+            { 0x80017C, 0x000400F0 },  // NETCCLKCR
+            { 0x800180, 0x0000000A },  // SBCR
+            { 0x800190, 0x00000014 },  // SGLTTR
+            { 0x800300, 0x80000100 },  // EMDIOBCR
+            { 0x800350, 0x00000010 },  // EMDIO_CFG
+            { 0x801000, 0x37077000 },  // L0CAPR
+            { 0x801014, 0x00000200 },  // L0TXBCCTR
+            { 0x801040, 0x37077000 },  // L1CAPR
+            { 0x801050, 0x00000001 },  // L1BCR
+            { 0x801054, 0x00000200 },  // L1TXBCCTR
+            { 0x801080, 0x37077000 },  // L2CAPR
+            { 0x801090, 0x00000002 },  // L2BCR
+            { 0x801094, 0x00000200 },  // L2TXBCCTR
+            { 0x8010C0, 0x37077000 },  // L3CAPR
+            { 0x8010D0, 0x00000003 },  // L3BCR
+            { 0x8010D4, 0x00000200 },  // L3TXBCCTR
+            { 0x801100, 0x37077000 },  // L4CAPR
+            { 0x801110, 0x00000040 },  // L4BCR
+            { 0x801114, 0x00000200 },  // L4TXBCCTR
+            { 0x801140, 0x37077010 },  // L5CAPR
+            { 0x801150, 0x00040041 },  // L5BCR
+            { 0x801154, 0x00000200 },  // L5TXBCCTR
+        };
+
         public uint ReadDoubleWord(long offset)
         {
             if(offset + 4 > Size)
@@ -88,6 +149,12 @@ namespace Antmicro.Renode.Peripherals.Network
             if(PtpRead(offset, out ptp))
             {
                 return ptp;
+            }
+
+            // IERB capability/config: the RM reset value until the guest writes it.
+            if(!ierbWritten.Contains(offset) && IerbResetValues.TryGetValue(offset, out var ierbReset))
+            {
+                return ierbReset;
             }
 
             // INIT_FLR always reads clear: the FLR-complete poll exits at once.
@@ -128,6 +195,10 @@ namespace Antmicro.Renode.Peripherals.Network
 
         public void WriteDoubleWord(long offset, uint value)
         {
+            if(IerbResetValues.ContainsKey(offset))
+            {
+                ierbWritten.Add(offset);
+            }
             if(offset + 4 > Size)
             {
                 return;
@@ -867,6 +938,10 @@ namespace Antmicro.Renode.Peripherals.Network
             }
             return false;
         }
+
+        // Offsets the guest has written, so an IERB reset value stops shadowing a real
+        // value once firmware owns the register.
+        private readonly HashSet<long> ierbWritten = new HashSet<long>();
 
         private readonly IBusController sysbus;
         private readonly FdbEntry[] fdb;

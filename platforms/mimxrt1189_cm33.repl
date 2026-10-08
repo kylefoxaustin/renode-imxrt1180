@@ -98,7 +98,7 @@ mecc1: Miscellaneous.IMXRT1180_MECC @ sysbus 0x42920000
 // secure alias 0x54380000 zero times, so the NS registration alone suffices for
 // M0. [elf]  The secure alias is added anyway (+0x1000_0000) because the CMSIS
 // header defines LPUART1_BASE as 0x54380000 for secure builds. [cmsis]
-lpuart1: UART.NXP_LPUART @ sysbus 0x44380000
+lpuart1: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x44380000
     // RT1180's LPUART FIFO is 16 deep. GROUNDED, not guessed:
     // FSL_FEATURE_LPUART_FIFO_SIZEn(x) == (16) in MIMXRT1189_cm33_features.h:757.
     // Renode's model defaults to 256, which would report a wrong encoded depth
@@ -108,7 +108,7 @@ lpuart1: UART.NXP_LPUART @ sysbus 0x44380000
 
 // ⚠ KNOWN FIDELITY GAP IN THE SHIPPED RENODE MODEL (confirmed, not suspected).
 // RT1180's WATER fields (devices/RT/RT1180/periph/PERI_LPUART.h) are WIDER than
-// UART.NXP_LPUART implements -- that model matches the MCX A287/A577 LPUART
+// Miscellaneous.IMXRT1180_LPUART implements -- that model matches the MCX A287/A577 LPUART
 // variant (identical narrow masks in their PERI_LPUART.h), not this one:
 //     field    RT1180 mask   bits       Renode      verdict
 //     TXWATER  0x0000000F    [3:0]  4   [1:0]  2    too narrow
@@ -258,43 +258,43 @@ dwt: Miscellaneous.IMXRT1180_UnimplementedBlock @ sysbus 0xE0001000
 // fifoSize 16 for the same reason lpuart1 sets it: the RT1180 FIFO is 16 deep
 // (FSL_FEATURE_LPUART_FIFO_SIZEn == 16), and Renode's model defaults to 256,
 // which reports a wrong encoded depth in FIFO[RX/TXFIFOSIZE].
-lpuart2: UART.NXP_LPUART @ sysbus 0x44390000
+lpuart2: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x44390000
     fifoSize: 16
     IRQ -> nvic@20
 
-lpuart3: UART.NXP_LPUART @ sysbus 0x42570000
+lpuart3: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42570000
     fifoSize: 16
     IRQ -> nvic@68
 
-lpuart4: UART.NXP_LPUART @ sysbus 0x42580000
+lpuart4: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42580000
     fifoSize: 16
     IRQ -> nvic@69
 
-lpuart5: UART.NXP_LPUART @ sysbus 0x42590000
+lpuart5: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42590000
     fifoSize: 16
     IRQ -> nvic@70
 
-lpuart6: UART.NXP_LPUART @ sysbus 0x425A0000
+lpuart6: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x425A0000
     fifoSize: 16
     IRQ -> nvic@71
 
-lpuart7: UART.NXP_LPUART @ sysbus 0x44570000
+lpuart7: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x44570000
     fifoSize: 16
     IRQ -> nvic@196
 
-lpuart8: UART.NXP_LPUART @ sysbus 0x42DA0000
+lpuart8: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42DA0000
     fifoSize: 16
     IRQ -> nvic@197
 
-lpuart9: UART.NXP_LPUART @ sysbus 0x42D70000
+lpuart9: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42D70000
     fifoSize: 16
     IRQ -> nvic@156
 
-lpuart10: UART.NXP_LPUART @ sysbus 0x42D80000
+lpuart10: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42D80000
     fifoSize: 16
     IRQ -> nvic@157
 
-lpuart11: UART.NXP_LPUART @ sysbus 0x42D90000
+lpuart11: Miscellaneous.IMXRT1180_LPUART @ sysbus 0x42D90000
     fifoSize: 16
     IRQ -> nvic@158
 

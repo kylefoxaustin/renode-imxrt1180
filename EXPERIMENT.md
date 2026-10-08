@@ -7341,3 +7341,87 @@ that actually catches drift, and it only works because it is late.
 
 Full list: `results/reset-value-mismatches.tsv` (186 rows, each tagged SHARED or
 RENODE-ONLY).
+
+## Two root causes closed: +78 registers, 186 → 108 Renode-only
+
+| | start | after LPUART | after NETC_IERB |
+|---|---|---|---|
+| MATCH | 1038 | 1082 | **1116** |
+| MISMATCH | 622 | 578 | **544** |
+| RENODE-ONLY | 186 | 142 | **108** |
+| UNMAPPED / NOT-DISCRIM | 1650 / 3883 | unchanged | unchanged |
+
+Both alignment controls pass on every run, and UNMAPPED/NOT-DISCRIM never moved — which
+is the evidence each change did only what it claimed.
+
+### 1. LPUART — 44 instances, 4 registers, one root cause
+
+`peripherals/IMXRT1180_LPUART.cs`. Renode's stock `UART.NXP_LPUART` had four wrong reset
+values, on all **eleven** instances:
+
+| reg | offset | RM golden | stock |
+|---|---|---|---|
+| `BAUD` | `0x010` | `0x0F000004` | `0x00000000` |
+| `FIFO` | `0x028` | `0x00C00033` | `0x00C10033` |
+| `DATARO` | `0x030` | `0x00001000` | `0x00000000` |
+| `TOSR` | `0x05C` | `0x0000000F` | not modelled |
+
+**The obstacle, and why the fix is legitimate rather than a hack.** Patching the stock
+model is impossible here: rebuilding the managed core needs commit `066a7f13`, which is
+no longer fetchable. And `ReadDoubleWord`/`Reset` are **not virtual**, so a subclass
+cannot `override` them. But re-declaring `IDoubleWordPeripheral` in the base list
+**reimplements the interface**, and Renode reaches peripherals *through* that interface,
+so `new` binds correctly. Proven with a throwaway probe before writing 103 lines on the
+assumption — the probe returned the corrected `0x0F000004` through a plain
+`sysbus ReadDoubleWord`.
+
+> ⭐ **AND `FIFO` BIT 16 IS THE RTWDOG BUG AGAIN.** `RXUF` means *"a receive underflow HAS
+> OCCURRED"*. At reset none has, and the stock model asserts it anyway — a peripheral
+> claiming an event it was never asked to perform. `IMXRT1180_RTWDOG.cs` carries exactly
+> that lesson in a comment about `CS.RCS`. **Second instance, different block, and this
+> one was found by a systematic sweep rather than by chasing a symptom.**
+
+Regression, six console-heavy targets against the stored QEMU captures — the console UART
+carries the whole corpus, so this was the check that mattered:
+
+```
+hello_world      2/2      agrees      kernel-common   394/394  agrees
+kernel-device  116/116    agrees      arm_interrupt    83/83    agrees
+lib-lockfree    61/61     agrees      timer_monotonic  21/21    timing-only
+```
+
+`timer_monotonic`'s difference is `delta: 240011756` vs `240023322` — the pre-existing
+adjudicated TIMING row (sig `2c9783e1a0b402c5`); my ad-hoc filter just did not exclude
+`delta:`. So 5 byte-identical, 1 timing-only, **0 regressions**. `kernel-device` passing
+matters most: that is the address-0 BusFault path, undisturbed by swapping the console
+UART on all 14 instances.
+
+### 2. NETC_IERB — 34 capability registers reading 0
+
+The Integrated Endpoint Register Block sits **inside** the NETC aperture at region offset
+`0x800000`, the same way EMDIO does at `0xBA0000` — Renode rejects overlapping sysbus
+registrations, so it cannot be its own peripheral. The model covered the window and
+returned 0.
+
+These matter more than their count suggests: `CAPR0..3` report **how many ports, VSIs and
+tables the silicon has**; `NETCCLKFR`/`NETCCLKCR` the clock frequency; `L0..L5CAPR` the
+per-link capabilities. A driver that sizes its structures from a capability register
+reading 0 allocates nothing and then fails somewhere else entirely — the same latent
+shape as LPUART `BAUD`, and precisely what this sweep exists to find.
+
+The table is **machine-generated from `rm-golden.json`**, not transcribed. Thirty-four
+hand-copied 32-bit constants is a typo waiting to be mistaken for a model defect, and
+this project has already paid once for a number typed from memory (the `adc2` IRQ, 94 for
+189).
+
+### The claim both fixes make, and the one they do not
+
+Each corrected register returns the RM reset value **until the guest writes that offset**,
+after which the existing model governs exactly as before. `FIFO.RXUF`, `DATARO.RXEMPT`
+and the IERB registers are status/config whose true behaviour tracks state a reset-value
+correction does not model. Correct at reset — which is what the RM specifies and what a
+driver reads before touching the block — and unchanged afterwards. Both headers say so,
+because claiming a behavioural model I have not written would be the worse error.
+
+Remaining Renode-only root causes, largest first: **CCM 18, BLK_CTRL_S_AONMIX 16,
+FLEXSPI 9, LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, LPSPI 1.**
