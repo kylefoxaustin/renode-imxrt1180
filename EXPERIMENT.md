@@ -7047,3 +7047,63 @@ So M-G's first half is: **deterministic on an idle box, 4/4, byte-identical, inc
 virtual-time value.** The under-load half is pending a reply, and until it runs this
 result is explicitly labelled *idle* — the script itself prints that caveat rather than
 letting a reader infer the stronger claim.
+
+## ✅ M-G determinism COMPLETE — load-invariant, byte-identical, positive-controlled
+
+The idle pass was the weak form. The strong form is **invariance across conditions**, and
+that is now measured:
+
+| condition | runs | result |
+|---|---|---|
+| idle box | 3 | all 4 targets byte-identical |
+| **32-core saturation** | 3 | all 4 targets byte-identical |
+| **idle vs load, same sha256** | — | **all 4 identical across conditions** |
+
+```
+TARGET                                       LOAD (32 cores)    IDLE               MATCH
+cm33-samples-hello_world                     592325e0658f9b77   592325e0658f9b77   ✓
+cm33-tests-kernel-device                     8c2104bd1b5770dd   8c2104bd1b5770dd   ✓
+cm33-tests-lib-lockfree                      e6725975db86e504   e6725975db86e504   ✓
+cm33-tests-kernel-timer-timer_monotonic      945e97f4015294bc   945e97f4015294bc   ✓
+
+POSITIVE CONTROL: one appended byte -> DIFFER, so the comparison discriminates
+```
+
+`delta: 240011756` reproduced to the digit in **every** run of **both** conditions. A
+host-time leak would surface in that value first and nowhere else.
+
+**Why the load pass matters more than the idle one:** the oracle's suite passed idle and
+*broke* under saturation — from a point-sample of periodic counters that coincided by
+phase, and a fixed wall-clock poll that called a slow box a failing model.
+**Invariance demonstrated beats invariance merely not disproved.**
+
+### Window: 1791431362 → 1791433185 (30m 23s), and my ETA was wrong
+
+I told `splat-vla` ~20 min; it took **30m 23s** — my own runs slowed under my own load. Had
+they tagged on my estimate, ~10 minutes of contended rows would have looked clean. So:
+**measure the boundary, never predict it.** I sent measured epochs, not the ETA.
+
+### The coordination cost one message and found two defects on the other side
+
+I asked before saturating, because their lease advertised a *resource profile* and 32
+spinning cores would have destroyed it silently. Both of us were wrong about something:
+
+- **Their lease string was stale** — the profile had finished an hour earlier. I asked
+  the right question about the wrong state of the world.
+- **My suggested fix was better than my question.** I proposed leases answer *"does
+  contention change my NUMBERS or only my ETA?"* Theirs now carries
+  `CONTENTION-SENSITIVE: NO`, which would have saved the whole round trip — a peer cannot
+  derive measurement fragility from a job description, but the holder always knows it.
+- **Their runner logged `wall_s` (a duration) with no absolute timestamp**, so they could
+  not join against my window — they had to reconstruct row times by summing durations
+  backwards from file mtime. *A duration cannot be joined against a window.* They fixed it
+  to record `t_start_epoch`/`t_end_epoch`, and flagged their own 664-row tagging as a
+  reconstruction rather than a measurement.
+
+Both of us also agreed the contended-vs-clean timings (2.70 s vs 1.97 s median) are **not
+a result**: one uncontrolled window, no load sweep, no repeats, and pure-ALU spinners
+exert almost no memory-bandwidth or LLC pressure — which is most of what would actually
+hurt a VL prefill. Published only so nobody mistakes those rows for clean timings.
+
+**M-G first half: DONE.** Remaining in M-G is the single differential harness over both
+tools in one pass.
