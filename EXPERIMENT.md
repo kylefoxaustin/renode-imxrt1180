@@ -7177,12 +7177,48 @@ closed. Without the age column I would have read a stale table as current. `--ru
 therefore required to re-measure; the default READS, so nobody burns hours of emulation
 by accident and nobody mistakes a read for a measurement either.
 
-## The honest headline is not the ratios
+## ❌ RETRACTED WITHIN THE HOUR: "42 of 54 never attempted" was FALSE
 
-**42 of 54 oracle value tests have never been attempted.** That is precisely the biased-
-sample risk the roadmap named itself — *"13/13 on the group I chose is a biased sample; I
-picked the group I had just built."* It is now one visible line instead of an absence, and
-it is the largest remaining unknown in the whole comparison.
+I wrote, and told Kyle: *"42 of 54 oracle value tests have never been attempted — the
+largest remaining unknown in the whole comparison."* **Wrong.** The orchestrator was
+pointed at `results/value-tests.tsv`, an older and narrower table covering only the
+motor/ADC group. The authoritative sweep is `results/value-sweep-final45.tsv` — the
+latest of them, and the one THIS FILE already cites twice (lines ~5790 and ~6308):
+
+```
+45 PASS / 0 FAIL / 10 NEEDS-OWN-HARNESS,  no row changed verdict
+```
+
+And the 10 are not unattempted either: they ship their own harness and are run by
+dedicated runners (`run_netc_lab3.sh`, `run_motor_load.sh`, `run_sai_value.sh` …),
+scored in their own rows rather than bare. So the real figure is **45/45 scored, 0 fail**,
+not 12/54.
+
+> ⭐ **AN ORCHESTRATOR POINTED AT THE WRONG ARTIFACT PRODUCES A CONFIDENT WRONG NUMBER,
+> AND READS EXACTLY LIKE ONE POINTED AT THE RIGHT ARTIFACT.** I mutation-tested every
+> refusal path in this script — missing table, injected FAIL, unknown verdict — and the
+> one thing I never tested was *whether it names the right file*. The table a harness
+> reads IS a claim, and it was the only claim in the script with no control on it.
+
+Two tells I walked past: the names in the "unattempted" list included `netc-lab3`,
+`dualcore`, `cm7wait`, `sai`, `mecc` and `m33-usagefault` — every one of which this file
+records as **closed**, several of them in triumphant detail. A list of unattempted work
+that contains your own finished work is a list about the wrong thing.
+
+## ⚠ And the staleness column I just added can LIE — I broke it myself
+
+`FILE MTIME` is the file's mtime, **not the measurement time**, and they diverge. While
+mutation-testing this script I restored `value-tests.tsv` with `cp`, which reset its
+mtime: the column flipped from `18d ago` to `0m ago` with **byte-identical content**. A
+freshness indicator that a restore can falsify is a hint, not provenance.
+
+Mitigations applied: the column is now labelled `FILE MTIME` rather than `MEASURED`, the
+caveat is in the script's own header, and moves use `cp -p`. The real fix — a measurement
+timestamp written *inside* each table by the harness that produced it — is noted and not
+yet done, so the column stays labelled as what it is.
+
+The genuinely open item that remains is **10 tests scored only through their own
+harnesses**, which is a weaker form of evidence than the bare sweep, not an absence.
 
 ## XIP: the gap I was carrying forward did not exist
 

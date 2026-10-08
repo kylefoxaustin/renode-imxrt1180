@@ -21,6 +21,12 @@
 #     exactly like a suite that found nothing wrong.
 #   - Every suite's row count is asserted against what it should contain.
 #   - STALENESS IS PRINTED, never inferred. Scoring a 12-day-old table is legitimate;
+#     doing it without knowing is not. ⚠️ BUT THE COLUMN IS FILE MTIME, NOT MEASUREMENT
+#     TIME, and those differ: restoring a table with `cp` resets its mtime while the
+#     CONTENT stays old. I did exactly that to value-tests.tsv while mutation-testing
+#     this script, and its age flipped from "18d ago" to "0m ago" with identical bytes.
+#     So mtime is a hint, not provenance. Use `cp -p` when moving these, and treat a
+#     fresh mtime on an unchanged table as unproven rather than as a measurement.
 #     doing it without knowing is not. Today a peer's stale lease string sent me to
 #     protect a measurement that had finished an hour earlier — a status field nobody
 #     timestamps is a claim that goes stale silently.
@@ -95,39 +101,45 @@ suite_zephyr() {
 }
 
 # ── suite 3: oracle value tests ───────────────────────────────────────────────
+# ⚠️ POINTS AT value-sweep-final45.tsv, NOT value-tests.tsv.
+#
+# The first version of this script read results/value-tests.tsv and reported
+# "12/12 pass, NOT ATTEMPTED 42" -- which I then wrote up as "42 of 54 oracle value
+# tests have never been attempted, the largest unknown in the whole comparison."
+# THAT WAS FALSE. value-tests.tsv is an older, narrower table covering only the
+# motor/ADC group. The authoritative sweep is value-sweep-final45.tsv (the latest of
+# the sweeps, and the one EXPERIMENT.md cites twice):
+#
+#       45 PASS / 0 FAIL / 10 NEEDS-OWN-HARNESS
+#
+# The 10 are not unattempted either -- they are tests that ship their own harness and
+# are run by dedicated runners (run_netc_lab3.sh, run_motor_load.sh, run_sai_value.sh
+# and friends), scored in their own rows rather than bare here.
+#
+# ⭐ AN ORCHESTRATOR POINTED AT THE WRONG ARTIFACT PRODUCES A CONFIDENT WRONG NUMBER,
+#    and reads exactly like one pointed at the right one. The table it names IS a
+#    claim, and it was the only part of this script I did not mutation-test.
 suite_value() {
-    local T=results/value-tests.tsv
-    [ "$DO_RUN" = 1 ] && bash scripts/run_value_tests.sh >/dev/null 2>&1
+    local T=results/value-sweep-final45.tsv
+    [ "$DO_RUN" = 1 ] && OUT="$ROOT/$T" bash scripts/run_value_sweep.sh >/dev/null 2>&1
     local rows; rows=$(awk 'NR>1' "$T" 2>/dev/null | wc -l)
     if [ ! -s "$T" ] || [ "$rows" -lt 1 ]; then
         emit "$(printf '%-22s %-10s %-30s %s' 'Oracle value tests' 'MISSING' "$T" 'no figure')"; broken=1; return
     fi
-    # OUT-OF-SCOPE is NOT a failure and must NOT sit in the denominator -- it is a test
-    # NOT ATTEMPTED, the same category as the Zephyr study's UNSCOREABLE free-runners.
-    # Scoring it as a disagreement is the mistake this project keeps making in the other
-    # direction (a short run scored as a verdict); scoring it as a pass would be worse.
-    # So: excluded from the ratio, counted neither way, and the count PRINTED -- because
-    # 42 unattempted tests is the single most important thing on this row and hiding it
-    # in a denominator or dropping it silently are both ways of not saying it.
-    # ASSERT THE VERDICT VOCABULARY. Found by mutation-testing this very script: a row
-    # whose verdict was 'WAT' landed silently in the FAIL bucket, because FAIL was
-    # defined as "not PASS and not OUT-OF-SCOPE". So a typo, or a verdict value added
-    # upstream that this scorer has never heard of, would be SCORED rather than refused
-    # -- and the next person to widen the vocabulary gets a wrong number, not an error.
-    # An unknown verdict is a malformed table, not a failing test.
+    # Assert the verdict vocabulary: an unknown verdict is a MALFORMED TABLE, not a
+    # failing test. Found by mutation-testing this script rather than by reading it.
     local unknown
-    unknown=$(awk -F'\t' 'NR>1 && $5!="PASS" && $5!="FAIL" && $5!="OUT-OF-SCOPE"{print $5}' "$T" | sort -u | tr '\n' ' ')
+    unknown=$(awk -F'\t' 'NR>1 && $6!="PASS" && $6!="FAIL" && $6!="NEEDS-OWN-HARNESS"{print $6}' "$T" | sort -u | tr '\n' ' ')
     if [ -n "$unknown" ]; then
         emit "$(printf '%-22s %-10s %s' 'Oracle value tests' 'BROKEN' "unknown verdict(s): $unknown")"; broken=1; return
     fi
-    local p f oos
-    p=$(awk -F'\t' 'NR>1 && $5=="PASS"' "$T" | wc -l)
-    oos=$(awk -F'\t' 'NR>1 && $5=="OUT-OF-SCOPE"' "$T" | wc -l)
-    f=$(awk -F'\t' 'NR>1 && $5=="FAIL"' "$T" | wc -l)
-    [ "$((p+f+oos))" -eq "$rows" ] || { emit "$(printf '%-22s %-10s %s' 'Oracle value tests' 'BROKEN' "pass+fail+oos=$((p+f+oos)) != rows=$rows")"; broken=1; return; }
+    local p f own
+    p=$(awk -F'\t' 'NR>1 && $6=="PASS"' "$T" | wc -l)
+    f=$(awk -F'\t' 'NR>1 && $6=="FAIL"' "$T" | wc -l)
+    own=$(awk -F'\t' 'NR>1 && $6=="NEEDS-OWN-HARNESS"' "$T" | wc -l)
+    [ "$((p+f+own))" -eq "$rows" ] || { emit "$(printf '%-22s %-10s %s' 'Oracle value tests' 'BROKEN' "p+f+own=$((p+f+own)) != rows=$rows")"; broken=1; return; }
     [ "$f" -gt 0 ] && disagree=1
-    local scored=$((p+f))
-    emit "$(printf '%-22s %-10s %-30s %s' 'Oracle value tests' "$p/$scored" "fail $f · NOT ATTEMPTED $oos" "$(age "$T")")"
+    emit "$(printf '%-22s %-10s %-30s %s' 'Oracle value tests' "$p/$((p+f))" "fail $f · own-harness $own" "$(age "$T")")"
 }
 
 # ── suite 4: Renode determinism ───────────────────────────────────────────────
@@ -148,7 +160,7 @@ suite_determinism() {
 
 echo "── DIFFERENTIAL PASS$([ "$DO_RUN" = 1 ] && echo ' (--run: re-measuring)' || echo ' (reading existing tables; --run to re-measure)')"
 echo
-printf '%-22s %-10s %-30s %s\n' SUITE AGREE DETAIL MEASURED
+printf '%-22s %-10s %-30s %s\n' SUITE AGREE DETAIL 'FILE MTIME'
 for s in sdk zephyr value determinism; do
     [ -n "$ONLY" ] && [ "$ONLY" != "$s" ] && continue
     "suite_$s"
