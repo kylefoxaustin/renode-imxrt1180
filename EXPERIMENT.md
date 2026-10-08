@@ -6973,3 +6973,77 @@ with a loud warning when the file is missing, mutation-proven:
 ```
 ⚠ NO ADJUDICATION FILE at /nonexistent/nope.tsv -- reporting the RAW figure only.
 ```
+
+---
+
+# 🎯 M-G, first half — Renode determinism MEASURED (2026-10-07)
+
+Determinism had never been measured on this side. `scripts/determinism_check.sh` runs
+the same ELF N times and compares the **raw UART byte stream** — deliberately not a
+normalised form, because normalising would discard the one signal that says the virtual
+clock is leaking host time.
+
+## Result, idle box, 3 runs each
+
+```
+TARGET                                       RUNS   HASHES  VALUE
+cm33-samples-hello_world                     3/3    1       -                 ✓ identical
+cm33-tests-kernel-device                     3/3    1       -                 ✓ identical
+cm33-tests-lib-lockfree                      3/3    1       -                 ✓ identical
+cm33-tests-kernel-timer-timer_monotonic      3/3    1       delta: 240011756  ✓ identical
+
+orphan census: 0 renode processes alive
+```
+
+**The value row is the one that matters.** `timer_monotonic` prints a *virtual*-time
+measurement, and `delta: 240011756` reproduced to the digit three times. On a
+deterministic-quantum model that is what correct looks like; any host-time leak would
+show up there first and nowhere else. `cm33-tests-kernel-device` is included
+deliberately — it now takes the address-0 BusFault, so the new fault path is covered too.
+
+## Four lessons taken whole from the oracle's `tools/determinism-check.sh`
+
+Paid for once already; no reason to pay again.
+
+1. **THE LOOP MUST PROVE IT RAN.** Their tool once parsed `--load` into `N`, `seq 1
+   --load` errored, the run loop executed **zero times**, and it printed *"All tests
+   deterministic over --load runs"* with `PASS=0` on every row. *Zero runs have zero
+   variance, so everything was deterministic.* **A check that did not run looks exactly
+   like a check that found nothing** — in the tool built to catch precisely that.
+   So here: flags are position-free, `N` must be a positive integer, `N<2` is refused
+   (you cannot measure variance from one sample), every row prints `runs=N/N`, and the
+   script **exits 2 making no claim** if any row fell short. All three argument paths
+   mutation-tested.
+2. **CHECK THE VALUE, NOT ONLY THE VERDICT.** A verdict can be stable while the
+   measurement under it scatters, if the tolerance is wide enough to hide it — which is
+   how one engine's non-determinism survived 27 findings.
+3. **RUN IT UNDER LOAD.** A green suite on an idle box is a measurement of the box.
+   Theirs passed idle and failed under saturation, and *both* failures were harness
+   defects: a point-sample of periodic counters that coincided by phase, and a fixed
+   10 s **wall-clock** poll that called a slow box a failing model.
+4. **A KILL THAT REACHES THE WRAPPER AND NOT THE PROCESS IS NOT A KILL**, and the exit
+   code cannot tell a bound from a leak — `timeout`, `timeout -k` and a proper bound all
+   report 124. So the script censuses for orphans instead of trusting exit status.
+
+### And I demonstrated lesson 4 on myself, minutes after writing it down
+
+I killed a test run with `kill %1`; the script died and **the Renode underneath kept
+running**. Its own `timeout -k 20 420` reaped it later, which is the bound working — and
+the orphan census above reading 0 is the proof. Same turn, I also wrote
+`pgrep -fc … || echo 0`, which printed a spurious second `0` because `pgrep -c` prints 0
+*and* exits 1 — the identical trap that once made the Zephyr classifier emit 218 rows
+from 90 inputs.
+
+## The load pass is deferred, on purpose
+
+`--load` spins all 32 cores for ~20 minutes. `splat-vla` currently holds the GPU for a
+*"resource profile + accuracy sets"* benchmark, and a resource profile is exactly the
+measurement 32 spinning cores would corrupt — silently, for both of us. Their lease
+covers the GPU, not the CPU, so nothing stopped me technically; that is precisely why I
+asked on the bus instead of proceeding. **The stronger claim can wait hours; their
+unreproducible benchmark could not be un-wrecked.**
+
+So M-G's first half is: **deterministic on an idle box, 4/4, byte-identical, including a
+virtual-time value.** The under-load half is pending a reply, and until it runs this
+result is explicitly labelled *idle* — the script itself prints that caveat rather than
+letting a reader infer the stronger claim.
