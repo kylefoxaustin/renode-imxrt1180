@@ -7590,3 +7590,73 @@ RT1180.** The RT1180 device header says `22|0x100U`, and `SRC` is a 7-bit field 
 `0x100` is discarded — consistent with TX already working as `21`. Same value, arrived at
 honestly rather than by luck, and the near-miss is why `grep` hits get their file path
 read before their number is used.
+
+## Two more root causes: 90 → 59 Renode-only (cumulative 186 → 59)
+
+| | start | LPUART | IERB | CCM | **BLK_CTRL + FLEXSPI** |
+|---|---|---|---|---|---|
+| MATCH | 1038 | 1082 | 1116 | 1134 | **1165** |
+| MISMATCH | 622 | 578 | 544 | 526 | **495** |
+| RENODE-ONLY | 186 | 142 | 108 | 90 | **59** |
+| UNMAPPED / NOT-DISCRIM | 1650 / 3883 | — | — | — | **unchanged** |
+
+Regressions, both of which were the real risk here: **M0 `hello world` ✓** (FLEXSPI1 is
+the XIP-backed instance the whole corpus boots through) and **M2 secondary-core banner ✓**
+(`IMXRT1180_SRC` is the block that gates the M7 release). `M7_CFG` still reads `0x10`, so
+CPUWAIT is still high and the M7 is still held.
+
+186 instances → 59, and 20 distinct root causes remain.
+
+### 4. BLK_CTRL_S_AONMIX — 16 interrupt masks, and the sign inverts the meaning
+
+```
+CM33_IRQ_MASK0..7   0x000..0x01C   golden 0xFFFFFFFF   was 0x00000000
+CM7_IRQ_MASK0..7    0x020..0x03C   golden 0xFFFFFFFF   was 0x00000000
+```
+
+For a **mask**, all-ones means *every interrupt masked at reset* — what silicon does,
+because a core leaving POR must not be hit by a peripheral IRQ before its vector table and
+handlers exist. Zero means *every interrupt unmasked*.
+
+> ⭐⭐ **THIS IS NOT A WRONG READBACK, IT IS THE OPPOSITE OF THE SAFE CONTRACT.** Firmware
+> relying on the documented "masked until I unmask it" would be exposed to every source
+> from its first instruction, and the resulting spurious interrupt surfaces in whatever
+> handler happens to be reached — arbitrarily far from this block, and looking nothing
+> like a reset-value bug.
+
+**Fourth instance of one pattern**: RTWDOG `CS` → 0 instead of `0x900`; LPUART `FIFO`
+asserting `RXUF` with no underflow; CCM `OBSERVE*_MIN` starting at 0 instead of all-ones;
+and now a mask defaulting to *permit everything*. The six BLK_CTRL rows that remain are
+all **SHARED** — the oracle deviates on them too.
+
+### 5. FLEXSPI — and two judgment calls worth more than the registers
+
+**I read the wrong model file first.** `IMXRT1180_FlexSPI.cs` has the right-sounding name,
+but `flexspi1` is `SPI.IMXRT1180_FlexSPI_Ctrl` — two classes, and I analysed the one that
+is not instantiated. Same class of error as the two tlib trees: *a plausible filename is
+not evidence that it is the file in use.*
+
+**`STS0` is deliberately NOT fixed, and that is the right call.** Golden `0x2`, model
+`0x3`. But this model's own header records why: `SEQIDLE` must read 1 when firmware polls,
+because `FLEXSPI_Init` writes MCR0 with MDIS **set** and then immediately spins on
+`GetBusIdleStatus(ARBIDLE && SEQIDLE)` — gating it wedged `FLEXSPI_SetFlashConfig` in the
+oracle. The existing `mcr0Written` gate satisfies both (0x2 before, 0x3 after), and the
+comment directly above MCR0 records that a previous attempt to make it smarter **regressed
+the example back to printing only its banner**. A cosmetic value, a register with a
+documented regression history, and no firmware that observes it: left alone, reason written
+down. It is the one deliberate open row in the sweep.
+
+**`FLSHCR4`: two sources disagreed and I took the golden's, with the argument recorded.**
+The enum comment says `0000_0000h`; `rm-golden.json` says `0x000000C3`. Taken because
+**5 of the other 6 enum comments in that file match the golden exactly**, which makes the
+`FLSHCR4` comment the outlier — and because this model is adapted from Renode's generic
+`IMXRT_FlexSPI`, whose comments describe a different RT part. Recorded in the code rather
+than silently resolved, so if a driver ever depends on `FLSHCR4` reading 0, the line to
+revisit is named.
+
+Also worth flagging: `LUTKEY` resets to `0x5AF0_5AF0` and was reading 0. That is the LUT
+**unlock key**, and `fsl_flexspi` writes back the key it read — so a zero key turns the
+unlock sequence into a no-op that still looks like it succeeded.
+
+Remaining root causes: LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, FLEXSPI 1 (deliberate),
+LPSPI 1, NETC_F0..F3_PCI_HDR_TYPE 1 each, plus a tail of single rows.

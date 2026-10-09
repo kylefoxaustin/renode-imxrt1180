@@ -73,6 +73,36 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 // CPUWAIT resets HIGH: on POR the M7 is held. [brief][oracle]
                 regs[M7Cfg / 4] = M7CfgWait;
+
+                // ⭐ THE IRQ MASKS RESET TO ALL-ONES, AND THE SIGN OF THAT MATTERS MORE
+                //    THAN ANY OTHER RESET VALUE THIS SWEEP HAS FOUND.
+                //
+                // CM33_IRQ_MASK0..7 (0x000..0x01C) and CM7_IRQ_MASK0..7 (0x020..0x03C)
+                // reset to 0xFFFFFFFF per the RM golden. These are MASK registers, so
+                // all-ones means EVERY INTERRUPT IS MASKED at reset -- which is what
+                // silicon does, because a core coming out of POR must not be hit by a
+                // peripheral IRQ before its vector table and handlers exist.
+                //
+                // This model reset them to 0, i.e. EVERY INTERRUPT UNMASKED. That is not
+                // "a wrong readback" -- it INVERTS THE MEANING of the register. Firmware
+                // that relies on the documented "masked until I unmask it" contract would
+                // be exposed to every source from the first instruction, and the resulting
+                // spurious interrupt would surface as a fault in whatever handler happened
+                // to be reached, arbitrarily far from this block.
+                //
+                // Found by scripts/reset_values_check.sh. Fourth instance of one pattern:
+                // RTWDOG CS resetting to 0 instead of 0x900; LPUART FIFO asserting RXUF
+                // when no underflow had occurred; CCM OBSERVE*_MIN starting at 0 instead
+                // of all-ones; and now a mask register defaulting to "permit everything".
+                // A ZERO RESET VALUE IS NOT THE ABSENCE OF A CLAIM, IT IS A CLAIM -- and
+                // for a mask, the claim is the opposite of the safe one.
+                //
+                // Values SOURCED from rm-golden.json (IMXRT1180RM.pdf + CMSIS); the range
+                // is contiguous so it is a loop rather than 16 transcribed constants.
+                for(var offset = Cm33IrqMask0; offset <= Cm7IrqMask7; offset += 4)
+                {
+                    regs[offset / 4] = 0xFFFFFFFF;
+                }
             }
             if(shared == this)
             {
@@ -205,6 +235,11 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         }
 
         private readonly IMachine machine;
+        // BLK_CTRL_S_AONMIX interrupt-mask window, SOURCED from rm-golden.json:
+        // CM33_IRQ_MASK0..7 at 0x000..0x01C, CM7_IRQ_MASK0..7 at 0x020..0x03C.
+        private const long Cm33IrqMask0 = 0x000;
+        private const long Cm7IrqMask7  = 0x03C;
+
         private readonly bool isBlkCtrl;
         private readonly IMXRT1180_SRC shared;
         private readonly uint[] regs;

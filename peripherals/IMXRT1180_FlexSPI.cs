@@ -44,6 +44,34 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
                 regs[i] = 0;
             }
             mcr0Written = false;
+
+            // ── RM reset values ─────────────────────────────────────────────────
+            // Found by scripts/reset_values_check.sh; SOURCED from rm-golden.json
+            // (IMXRT1180RM.pdf + CMSIS). Plain config registers with no polling
+            // semantics -- a driver reads these to discover the module's shape, and
+            // reading 0 tells it the module has no sectors, no LUT and no AHB buffers.
+            //
+            // NOTE LUTKEY = 0x5AF05AF0. That is the LUT unlock key, and reading 0 for it
+            // is not a benign wrong number: fsl_flexspi writes the key it read back when
+            // it wants to unlock the LUT, so a zero key makes the unlock sequence a
+            // no-op that still looks like it succeeded.
+            regs[0x004 / 4] = 0xFFFFFFFF;   // MCR1   — seq/AHB timeout, all-ones at reset
+            regs[0x008 / 4] = 0x200081F7;   // MCR2
+            regs[0x00C / 4] = 0x00000018;   // AHBCR
+            regs[0x018 / 4] = 0x5AF05AF0;   // LUTKEY
+            regs[0x01C / 4] = 0x00000002;   // LUTCR
+            regs[0x094 / 4] = 0x000000C3;   // FLSHCR4
+            regs[0x0E8 / 4] = 0x01000100;   // STS2  — both lanes report "locked/ready"
+            regs[0x000 / 4] = 0xFFFF80C2;   // MCR0
+
+            // ⚠️ STS0 IS DELIBERATELY NOT SET HERE, AND THE READ PATH ABOVE KEEPS ITS
+            //    mcr0Written GATE. The RM resets STS0 to 0x2 (ARBIDLE alone, SEQIDLE
+            //    clear), but SEQIDLE must read 1 the moment firmware polls it:
+            //    FLEXSPI_Init writes MCR0 with MDIS SET and then immediately spins on
+            //    GetBusIdleStatus(ARBIDLE && SEQIDLE), and gating SEQIDLE wedged
+            //    FLEXSPI_SetFlashConfig in the oracle. The gate satisfies both -- 0x2
+            //    until MCR0 is written, 0x3 after -- which is why it is a gate and not a
+            //    constant.
         }
 
         public uint ReadDoubleWord(long offset)

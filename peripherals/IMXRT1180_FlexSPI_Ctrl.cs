@@ -289,6 +289,33 @@ namespace Antmicro.Renode.Peripherals.SPI
             // program all the way back to printing only its banner. Defining a register
             // is not automatically safer than leaving it unhandled -- an undefined
             // register reads 0, which for MCR0 happened to be survivable.
+            // ── RM reset values the model never applied ──────────────────────────
+            //
+            // Found by scripts/reset_values_check.sh. The enum below ALREADY DOCUMENTS
+            // these values in its comments (MCR1 FFFF_FFFFh, MCR2 2000_81F7h, AHBCR
+            // 0000_0018h, LUTKEY 5AF0_5AF0h, LUTCR 0000_0002h, STS2 0100_0100h) -- they
+            // were simply never passed to Define, so every one reset to 0.
+            //
+            // ⚠️ LUTKEY = 0x5AF0_5AF0 is the one that is not merely cosmetic. It is the
+            // LUT unlock key, and fsl_flexspi writes back the key it read: a zero key
+            // turns the unlock sequence into a no-op that still looks like it succeeded.
+            //
+            // ⚠️ FLSHCR4: TWO SOURCES DISAGREE AND I AM TAKING THE GOLDEN'S. The enum
+            // comment below says 0000_0000h; rm-golden.json (extracted from
+            // IMXRT1180RM.pdf) says 0x000000C3. Taking the golden because 5 of the other
+            // 6 enum comments here match the golden EXACTLY, which makes the FLSHCR4
+            // comment the outlier rather than the golden -- and because this model is
+            // adapted from Renode's generic IMXRT_FlexSPI, whose comments describe a
+            // different RT part. Recorded rather than silently resolved: if a driver ever
+            // depends on FLSHCR4 reading 0, this is the line to revisit.
+            Registers.ModuleControlRegister1.Define(this, 0xFFFFFFFF);
+            Registers.ModuleControlRegister2.Define(this, 0x200081F7);
+            Registers.AHBBusControlRegister.Define(this, 0x00000018);
+            Registers.LUTKeyRegister.Define(this, 0x5AF05AF0);
+            Registers.LUTControlRegister.Define(this, 0x00000002);
+            Registers.FlashControlRegister4.Define(this, 0x000000C3);
+            Registers.StatusRegister2.Define(this, 0x01000100);
+
             Registers.ModuleControlRegister0.Define(this, 0xFFFF80C2)
                 .WithFlag(0, FieldMode.Read | FieldMode.Write, name: "SWRESET",
                     valueProviderCallback: _ => false)
