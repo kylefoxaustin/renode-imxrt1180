@@ -100,8 +100,21 @@ namespace Antmicro.Renode.Peripherals.Network
         // Read-only here: the reset value is returned until the guest writes the offset,
         // after which regs[] governs, exactly as the LPUART correction does. Modelling
         // their behaviour is a separate job and is not claimed.
+        // PCI function config headers: PCIE_CFC_SRIOV_CAP_HDR for functions 0..4, at
+        // 0x150 + n*0x1000 within this aperture. SOURCED from rm-golden.json; the stride
+        // is confirmed by all five measured addresses (0x60000150, 0x60001150, 0x60002150,
+        // 0x60003150, 0x60004150) rather than assumed from one.
+        //
+        // An SR-IOV capability header reading 0 says "this function advertises no
+        // capabilities", which for an enumerating driver means it stops looking.
         private static readonly Dictionary<long, uint> IerbResetValues = new Dictionary<long, uint>
         {
+            { 0x000150, 0x00010010 },  // NETC_F0_PCI_HDR_TYPE0 PCIE_CFC_SRIOV_CAP_HDR
+            { 0x001150, 0x00010010 },  // NETC_F1_PCI_HDR_TYPE0 PCIE_CFC_SRIOV_CAP_HDR
+            { 0x002150, 0x00010010 },  // NETC_F2_PCI_HDR_TYPE0 PCIE_CFC_SRIOV_CAP_HDR
+            { 0x003150, 0x00010010 },  // NETC_F3_PCI_HDR_TYPE0 PCIE_CFC_SRIOV_CAP_HDR
+            { 0x004150, 0x00010010 },  // NETC_F4_PCI_HDR_TYPE0 PCIE_CFC_SRIOV_CAP_HDR
+
             { 0x800000, 0x01110651 },  // CAPR0
             { 0x800004, 0x000E000E },  // CAPR1
             { 0x800008, 0x00000034 },  // CAPR2

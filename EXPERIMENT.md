@@ -7660,3 +7660,104 @@ unlock sequence into a no-op that still looks like it succeeded.
 
 Remaining root causes: LPI2C 4, SRC_GENERAL_REG 4, TRDC 3, CMP 1, FLEXSPI 1 (deliberate),
 LPSPI 1, NETC_F0..F3_PCI_HDR_TYPE 1 each, plus a tail of single rows.
+
+## The tail: 59 → 1, and the sweep found one more real defect on the way out
+
+| | start | … | before tail | **after tail** |
+|---|---|---|---|---|
+| MATCH | 1038 | … | 1165 | **1223** |
+| MISMATCH | 622 | … | 495 | **437** |
+| RENODE-ONLY | 186 | … | 59 | **1** |
+| UNMAPPED / NOT-DISCRIM | 1650 / 3883 | — | — | **unchanged** |
+
+The one remaining row is `FLEXSPI1 STS0`, deliberately left (see above). Regressions: M0 ✓,
+M2 secondary-core ✓, SAI TX 6/6 ✓, value sweep **46 PASS / 0 FAIL / 0 NO-OUTPUT**.
+
+Seven groups: LPI2C (24), LPSPI TCR (6), TPM MOD (6), TRDC (9), CMP C3 (4),
+SRC_GENERAL_REG (4), NETC PCI SRIOV headers (5).
+
+### ⭐ SRSR = 0x1 — the best instance of the pattern in the whole sweep
+
+`SRC_GENERAL_REG.SRSR` bit 0 means *"a POR has occurred"*. It was reading 0, which claims
+**no reset has ever happened** — false **by construction**, because the only way to read
+this register at its reset value is to have just come out of reset. *The register was
+denying the event that produced it.* Firmware uses SRSR to choose the cold-boot versus
+warm-restart path; told "no reset cause", a bootloader can take the warm path over
+uninitialised state.
+
+Also in the tail: `TPM.MOD` → `0xFFFF`, where this model's own `StepTimer` has
+`if(clockMode == 0 || modulo == 0)` treating modulo 0 as *stopped* — so MOD resetting to 0
+told the guest the timer has no period and firmware waiting on an overflow waits forever.
+`LPSPI.TCR` → `0x1F`, where FRAMESZ is size-minus-one so 0 is a **one-bit frame** and
+`fsl_lpspi` read-modify-writes TCR. And LPI2C's four are the same inversion as the
+BLK_CTRL masks — bit 14 is `AddressNotValid`/`ReceiveEmpty` and must be **set**; the two
+read-only aliases were undefined, so they read 0, which for a receive register claims
+*"here is a valid byte 0x00"* rather than *"the FIFO is empty"*.
+
+**Five instances, five unrelated blocks**: RTWDOG `CS`, LPUART `RXUF`, CCM `*_MIN`,
+BLK_CTRL masks, SRC `SRSR`. A zero reset value is not the absence of a claim — and in
+every case it was the unsafe one.
+
+### ⚠️ Two instrument defects in the tail itself
+
+**1. My offset derivation was wrong by 0x10 on every register.** I computed
+`off = addr - min(golden addr for that instance)`, assuming the lowest golden address is
+the instance base. It is not. Caught because TPM's `MOD` came out `0x08` where this tree's
+own constant says `Modulo = 0x18`. Recomputed from CMSIS bases and validated against the
+models' own enums (`TargetAddressStatus = 0x150`, `TargetReceiveData = 0x170`) before use.
+*Writing correct values to wrong offsets would have left the sweep still red and sent me
+hunting a phantom.*
+
+**2. Reset values applied only inside `Reset()` are unreachable until something calls it.**
+CMP and TRDC never called `Reset()` from their constructors, and Renode does not guarantee
+a `Reset()` at platform load — so after adding correct values the sweep **still** read
+`0x00000000`. The values were right and unreachable. Models in this tree that do call it
+(SAI, SRC, LPI2C) were unaffected, which is precisely why only those two lagged.
+
+---
+
+# 🎤 AND THE ORACLE'S BARE-METAL SAI RX TEST FOUND A BUG record_playback HID
+
+The value sweep picked up `@rt1180emulator`'s new `tests/imxrt1180-sai-rx` and scored it
+**NO-OUTPUT** on Renode — even though stock `edma_record_playback` was already passing
+with 2560/2560 generator samples. Both statements were true, and the gap between them was
+a real defect.
+
+Their test enables `RCSR.RE` and polls `RDR0` directly, no eDMA. Measured:
+
+```
+RCSR = 0x80000000   (RE set — the guest did its part)
+TCR2 = 0            (never written: this test does not transmit)
+```
+
+**`SampleRateHz()` paced RX from `TCR2` — the TRANSMIT config.** With `TCR2 = 0`, BCD reads
+"bit-clock slave", the function returns 0, `DrainTick` returns early, the generator never
+ticks, and the test spins with no output.
+
+> ⭐ **ONE TEST PASSING THROUGH A SHARED FIELD IS NOT EVIDENCE THAT THE FIELD IS THE RIGHT
+> ONE.** `record_playback` configures SAI as master for *both* directions, so `TCR2.BCD`
+> happened to be set and the TX-derived rate happened to work for RX. The 2560/2560 result
+> was real and it certified the wrong thing.
+
+And the second half: **bit-clock slave must not mean "no samples".** Returning 0 for slave
+mode is right for TX — nothing is being clocked out — and backwards for RX, because slave
+mode is precisely when an external codec drives the clock **and supplies the data**, which
+is what the shared generator stands in for. A slave-mode receiver could never receive.
+
+RX now reads `RCR2`/`RCR4`/`RCR5`, and slave mode paces at `NominalSlaveRxRateHz`, labelled
+a **choice rather than a measurement** — the model has no external codec clock to read. It
+is sound for what the tests assert (they check the sample *sequence* and its order, never
+its timing; the oracle's test recomputes `sample(n)` from first principles), and the
+constant is named rather than inlined so a future timing assertion has an obvious thing to
+replace.
+
+Their binary, unmodified, on this model:
+
+```
+s00=0x0000  s01=0x9e37  s02=0x3c6e  s03=0xdaa6 …
+SAI-RX: PASS - captured stream == sample(n) generator, non-zero, non-constant
+```
+
+`0x9e37` is −25033 signed — the same value cross-checked against their published sequence
+before either side ran firmware. Sweep row: **NO-OUTPUT → PASS**, and the suite is now
+**46 PASS / 0 FAIL / 0 NO-OUTPUT** over a coverage-asserted 56 rows.

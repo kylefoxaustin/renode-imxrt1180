@@ -633,7 +633,23 @@ namespace Antmicro.Renode.Peripherals.I2C
                 .WithReservedBits(27, 5)
             ;
 
-            Registers.TargetAddressStatus.Define(this)
+            // ⭐ BIT 14 MEANS "NOTHING VALID HERE", AND IT MUST BE SET AT RESET.
+            // SASR[14] is AddressNotValid, SRDR[14] is ReceiveEmpty, and both reset to 1
+            // (0x4000) per rm-golden.json. Resetting them to 0 claims the opposite: that a
+            // target address has been received, and that a byte is waiting in an empty
+            // FIFO. The same inversion as the LPUART/LPI2C RXEMPTY family and as the
+            // BLK_CTRL interrupt masks -- a zero reset value is not the absence of a claim.
+            // The read-only aliases (MRDROR 0x78, SRDROR 0x178) were not defined at
+            // all, so they read 0 -- which for a RECEIVE-DATA register is the dangerous
+            // answer: it claims "here is a valid byte 0x00" rather than "the FIFO is
+            // empty". Defining them with the RM reset value makes the honest answer the
+            // default. Their pop-free dynamic behaviour is NOT modelled and is not claimed;
+            // nothing in the corpus reads them, which is why they went unnoticed until the
+            // reset-value sweep.
+            Registers.ControllerReceiveDataReadOnly.Define(this, 0x00004000);
+            Registers.TargetReceiveDataReadOnly.Define(this, 0x00004000);
+
+            Registers.TargetAddressStatus.Define(this, 0x00004000)
                 .WithTag("ReceivedAddress", 0, 11)
                 .WithReservedBits(11, 3)
                 .WithTaggedFlag("AddressNotValid", 14)
@@ -650,7 +666,7 @@ namespace Antmicro.Renode.Peripherals.I2C
                 .WithReservedBits(8, 24)
             ;
 
-            Registers.TargetReceiveData.Define(this)
+            Registers.TargetReceiveData.Define(this, 0x00004000)
                 .WithTag("ReceiveData", 0, 8)
                 .WithTag("ReceivedAddress", 8, 3)
                 .WithReservedBits(11, 3)
@@ -747,6 +763,11 @@ namespace Antmicro.Renode.Peripherals.I2C
             TargetTransmitACK = 0x154,
             TargetTransmitData = 0x160,
             TargetReceiveData = 0x170,
+
+            // Read-only aliases: same data, read WITHOUT popping the FIFO. Offsets
+            // cross-checked against CMSIS LPI2C1_BASE 0x4434_0000.
+            ControllerReceiveDataReadOnly = 0x78,
+            TargetReceiveDataReadOnly = 0x178,
         }
     }
 }

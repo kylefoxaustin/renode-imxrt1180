@@ -48,6 +48,7 @@ imxrt1180-pwm-dma	pwmdma.elf	MOTOR	1	0	PASS
 imxrt1180-sai	sai.elf	CM33	0	check.py	NEEDS-OWN-HARNESS
 imxrt1180-sai-audiopll	saiapll.elf	CM33	0	check.py	NEEDS-OWN-HARNESS
 imxrt1180-sai-dma	saidma.elf	CM33	0	check.py	NEEDS-OWN-HARNESS
+imxrt1180-sai-rx	sairx.elf	CM33	1	0	PASS
 imxrt1180-timers2	timers2.elf	CM33	1	0	PASS
 imxrt1180-tmr	tmr.elf	CM33	1	0	PASS
 imxrt1180-uartlink	passthrough.elf	CM33	1	0	PASS

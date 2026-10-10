@@ -70,6 +70,17 @@ namespace Antmicro.Renode.Peripherals.SPI
         public override void Reset()
         {
             Array.Clear(regs, 0, regs.Length);
+
+            // TCR resets to 0x1F: FRAMESZ = 31, i.e. a 32-BIT FRAME (the field is
+            // size-minus-one). SOURCED from rm-golden.json; offset cross-checked against
+            // CMSIS LPSPI1_BASE 0x4436_0000.
+            //
+            // Resetting it to 0 does not mean "unconfigured", it means FRAMESZ = 0 -> a
+            // ONE-BIT FRAME. A driver that reads TCR, modifies one field and writes it
+            // back -- which is what fsl_lpspi does -- inherits a 1-bit frame and clocks
+            // out a single bit per transfer. The transfer still "succeeds".
+            regs[0x060 / 4] = 0x0000001F;
+
             rxFifo.Clear();
             chipSelectAsserted = false;
             foreach(var line in Connections.Values)

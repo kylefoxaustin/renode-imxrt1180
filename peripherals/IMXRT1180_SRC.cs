@@ -69,6 +69,27 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 regs[i] = 0;
             }
+            if(!isBlkCtrl)
+            {
+                // ── SRC_GENERAL_REG RM reset values ─────────────────────────────
+                // SOURCED from rm-golden.json; offsets relative to the SRC base this
+                // platform registers at 0x4446_0000.
+                //
+                // ⭐ SRSR = 0x1 IS THE BEST INSTANCE OF THE PATTERN IN THE WHOLE SWEEP.
+                // SRSR is the System Reset Status Register, and bit 0 is "a POR has
+                // occurred". Reading 0 claims NO RESET HAS EVER HAPPENED -- which is
+                // false BY CONSTRUCTION, because the only way to be reading this register
+                // at its reset value is to have just come out of reset. The register was
+                // denying the event that produced it.
+                //
+                // Firmware uses SRSR to decide whether this is a cold boot or a warm
+                // restart. Told "no reset cause", a bootloader can take the warm path
+                // over uninitialised state.
+                regs[0x018 / 4] = 0x00003FBF;   // SRMASK
+                regs[0x044 / 4] = 0x08000000;   // SBMR2
+                regs[0x04C / 4] = 0x00000001;   // SRSR_BBSM — POR occurred
+                regs[0x050 / 4] = 0x00000001;   // SRSR      — POR occurred
+            }
             if(isBlkCtrl)
             {
                 // CPUWAIT resets HIGH: on POR the M7 is held. [brief][oracle]

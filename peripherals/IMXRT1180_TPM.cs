@@ -44,6 +44,16 @@ namespace Antmicro.Renode.Peripherals.Timers
         public void Reset()
         {
             Array.Clear(regs, 0, regs.Length);
+
+            // MOD resets to 0xFFFF -- a FREE-RUNNING 16-bit counter, SOURCED from
+            // rm-golden.json. This model's own StepTimer treats modulo == 0 as "stopped"
+            //     if(clockMode == 0 || modulo == 0)
+            // so resetting MOD to 0 told the guest the timer has NO PERIOD. Firmware that
+            // enables the clock and waits for an overflow without writing MOD first waits
+            // forever, and nothing reports an error -- the timer is simply never going to
+            // tick. Found by scripts/reset_values_check.sh.
+            regs[Modulo / 4] = 0x0000FFFF;
+
             timer.Enabled = false;
             Connections[0].Unset();
         }

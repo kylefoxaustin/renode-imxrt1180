@@ -115,10 +115,27 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         public IMXRT1180_CMP(IMachine machine)
         {
             regs = new uint[Size / 4];
+            // ⚠️ RESET VALUES DO NOT EXIST UNTIL Reset() RUNS, AND THE CONSTRUCTOR MUST
+            // CALL IT. Renode does not guarantee a Reset() at platform load, so a
+            // peripheral that only applies its reset values inside Reset() presents
+            // ALL-ZEROS until something triggers one. Measured: after adding C3's reset
+            // value here, the sweep still read 0x00000000 -- the value was correct and
+            // unreachable. Models in this tree that call Reset() from their constructor
+            // (SAI, SRC, LPI2C) were unaffected, which is why only CMP and TRDC lagged.
+            Reset();
         }
 
         public long Size => 0x1000;
-        public void Reset() { Array.Clear(regs, 0, regs.Length); }
+        public void Reset()
+        {
+            Array.Clear(regs, 0, regs.Length);
+            // CMP C3 resets to 0x1100_0000. SOURCED from rm-golden.json; offset
+            // cross-checked against CMSIS CMP1_BASE 0x42DC_0000 rather than derived from
+            // the golden's lowest address for the instance -- that derivation was wrong by
+            // 0x10 on every register when I tried it, caught because TPM's MOD came out as
+            // 0x08 where this tree's own constant says 0x18.
+            regs[0x014 / 4] = 0x11000000;
+        }
 
         public uint ReadDoubleWord(long offset)
         {

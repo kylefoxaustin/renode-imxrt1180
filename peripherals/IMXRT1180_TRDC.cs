@@ -40,6 +40,10 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
         {
             this.ncmMask = ncmMask;
             regs = new uint[Size / 4];
+            // See the note in IMXRT1180_Misc.cs/IMXRT1180_CMP: reset values applied only
+            // inside Reset() are unreachable until something calls it, and Renode does not
+            // guarantee a Reset() at platform load.
+            Reset();
         }
 
         public long Size => 0x20000;
@@ -50,6 +54,21 @@ namespace Antmicro.Renode.Peripherals.Miscellaneous
             {
                 regs[i] = 0;
             }
+
+            // ── RM reset values ─────────────────────────────────────────────────
+            // Found by scripts/reset_values_check.sh; SOURCED from rm-golden.json
+            // (IMXRT1180RM.pdf + CMSIS). Offsets cross-checked against the CMSIS base
+            // TRDC1_BASE 0x4427_0000 -- NOT derived from the golden's lowest address for
+            // the instance, which is what I tried first and which was wrong by 0x10 on
+            // every register (caught because TPM's MOD came out as 0x08 when this tree's
+            // own constant says 0x18).
+            //
+            // TRDC_CR[4] and TRDC_IDAU_CR[3] are capability/enable bits the guest reads to
+            // discover what the controller supports; FLW_PBASE is the flash-logical-window
+            // physical base, and 0 there means "the window starts at address 0".
+            regs[0x000 / 4] = 0x00000010;   // TRDC_CR
+            regs[0x1C0 / 4] = 0x00000008;   // TRDC_IDAU_CR
+            regs[0x1E4 / 4] = 0x01000000;   // TRDC_FLW_PBASE
         }
 
         public uint ReadDoubleWord(long offset)

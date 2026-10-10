@@ -307,6 +307,60 @@ namespace Antmicro.Renode.Peripherals.Sound
             return bclk / (words * bits);
         }
 
+        // ⚠️ RX HAS ITS OWN CLOCK CONFIG, AND USING THE TRANSMITTER'S WAS A REAL BUG.
+        //
+        // SampleRateHz() above reads TCR2/TCR4/TCR5 -- the TRANSMIT registers. RX is
+        // configured independently through RCR2/RCR4/RCR5, so a receive-only user never
+        // touches the TX side at all. Measured with @rt1180emulator's bare-metal
+        // tests/imxrt1180-sai-rx, which enables RCSR.RE and polls RDR0 directly:
+        //
+        //   RCSR = 0x80000000   (RE set -- the guest did its part)
+        //   TCR2 = 0            (never written: this test does not transmit)
+        //   -> SampleRateHz() reads TCR2.BCD = 0, returns 0, DrainTick returns early,
+        //      the generator never ticks, and the test spins forever with NO OUTPUT.
+        //
+        // The stock edma_record_playback example hid this because it configures SAI as
+        // MASTER for both directions, so TCR2.BCD happened to be set and the TX-derived
+        // rate happened to be usable for RX. ONE TEST PASSING THROUGH A SHARED FIELD IS
+        // NOT EVIDENCE THAT THE FIELD IS THE RIGHT ONE.
+        //
+        // ⭐ AND BIT-CLOCK SLAVE MUST NOT MEAN "NO SAMPLES".
+        //
+        // SampleRateHz() returns 0 for slave mode, documented as "we do not model an
+        // external bit clock". For TX that is right -- nothing is being clocked out. For
+        // RX it is backwards: slave mode is precisely when an EXTERNAL CODEC drives the
+        // clock AND supplies the data, which is the situation the shared generator exists
+        // to stand in for. Returning 0 there means a slave-mode receiver can never
+        // receive anything, which is the common configuration for a codec feeding RX.
+        //
+        // So in slave mode the generator is paced at a NOMINAL rate, labelled as such.
+        // This is a choice, not a measurement: the model has no external codec whose
+        // clock it could read. It is sound for what the tests assert because they check
+        // the sample SEQUENCE and its order, never its timing -- the oracle's test
+        // recomputes sample(n) from first principles and compares values. If a future
+        // test ever asserts RX timing, this constant is the thing to replace with a real
+        // external-clock model, and that is why it is named rather than inlined.
+        private const uint NominalSlaveRxRateHz = 48000;
+
+        private uint RxSampleRateHz()
+        {
+            var rcr2 = regs[(long)Registers.Rcr2 / 4];
+            if(((rcr2 >> Tcr2BcdShift) & 1) == 0)
+            {
+                return NominalSlaveRxRateHz;   // external master clocks us: see above
+            }
+            var words = ((regs[(long)Registers.Rcr4 / 4] >> Tcr4FrszShift) & 0x1F) + 1;
+            var bits  = ((regs[(long)Registers.Rcr5 / 4] >> Tcr5W0wShift) & 0x1F) + 1;
+            var mclk  = ccm != null ? ccm.GetClockRootHz(clockRoot) : 0u;
+            if(mclk == 0 || words == 0 || bits == 0)
+            {
+                return NominalSlaveRxRateHz;
+            }
+            var bclk = mclk / (2u * ((rcr2 & Tcr2DivMask) + 1u));
+            var rate = bclk / (words * bits);
+            return rate != 0 ? rate : NominalSlaveRxRateHz;
+        }
+
         private uint ComposeTcsr()
         {
             // SR/FR are momentary: never observable as set on a read-back.
@@ -475,10 +529,18 @@ namespace Antmicro.Renode.Peripherals.Sound
         // guest running at a real sample rate.
         private void DrainTick()
         {
+            var rxEnabled = (regs[(long)Registers.Rcsr / 4] & CsrEn) != 0;
             var fs = SampleRateHz();
             if(fs == 0)
             {
-                return;                      // no clock: nothing is being clocked out
+                // No TX clock. That is fine for TX -- nothing is being clocked out -- but
+                // RX may still be running off an external master, so do not abandon the
+                // whole tick on the transmitter's account.
+                if(!rxEnabled)
+                {
+                    return;
+                }
+                fs = RxSampleRateHz();
             }
             drainAccumulator += (ulong)fs * DrainTickMicroseconds;
             var want = drainAccumulator / MicrosecondsPerSecond;
